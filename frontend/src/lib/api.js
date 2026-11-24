@@ -18,7 +18,7 @@ api.interceptors.request.use((config) => {
 const DEFAULT_LOCAL_PAGES = [
   {
     id: '1',
-    page_id: 'demo',
+    page_id: 'omdropz',
     business_name: 'AURA • Maison & Studio',
     logo_url: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=400&q=85',
     welcome_message: 'Bespoke atelier & premium experiences. Tap below to connect directly with us.',
@@ -76,9 +76,9 @@ function getStoragePages() {
   try {
     const version = localStorage.getItem('nfc_local_pages_version')
     const raw = localStorage.getItem('nfc_local_pages')
-    if (!raw || version !== 'v4') {
+    if (!raw || version !== 'v5') {
       localStorage.setItem('nfc_local_pages', JSON.stringify(DEFAULT_LOCAL_PAGES))
-      localStorage.setItem('nfc_local_pages_version', 'v4')
+      localStorage.setItem('nfc_local_pages_version', 'v5')
       return DEFAULT_LOCAL_PAGES
     }
     return JSON.parse(raw)
@@ -96,13 +96,17 @@ function saveStoragePages(pages) {
 }
 
 export const getPage = async (pageId) => {
+  const target = (pageId || 'omdropz').toLowerCase()
   try {
-    const res = await api.get(`/pages/${pageId}`)
+    const res = await api.get(`/pages/${target}`)
     return res.data
   } catch (err) {
     // Fallback to local storage
     const pages = getStoragePages()
-    const found = pages.find((p) => p.page_id.toLowerCase() === pageId.toLowerCase())
+    const found =
+      pages.find((p) => p.page_id.toLowerCase() === target) ||
+      pages.find((p) => (target === 'demo' || target === 'omdropz') && (p.page_id.toLowerCase() === 'omdropz' || p.page_id.toLowerCase() === 'demo')) ||
+      pages[0]
     if (found) {
       return { success: true, page: found }
     }

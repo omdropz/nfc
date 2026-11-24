@@ -75,8 +75,9 @@ function playHapticClick() {
   }
 }
 
-export default function LandingPage() {
-  const { pageId } = useParams()
+export default function LandingPage({ defaultPageId = 'omdropz' }) {
+  const { pageId: routePageId } = useParams()
+  const pageId = routePageId || defaultPageId || 'omdropz'
   const navigate = useNavigate()
 
   const [pageData, setPageData] = useState(null)
