@@ -1,0 +1,203 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', sans-serif;
+    background-color: #050507;
+    color: #ffffff;
+    min-height: 100%;
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+}
+
+@layer utilities {
+  .preserve-3d {
+    transform-style: preserve-3d;
+  }
+  .backface-hidden {
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+  .rotate-y-180 {
+    transform: rotateY(180deg);
+  }
+}
+
+@layer components {
+  /* Ultra-smooth mobile card entrance */
+  @keyframes mobileCardEnter {
+    0% {
+      opacity: 0;
+      transform: translateY(22px) scale(0.95);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .animate-card-enter {
+    animation: mobileCardEnter 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+    will-change: transform, opacity;
+  }
+
+  /* Subtle floating card animation */
+  @keyframes floatSlow {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-5px);
+    }
+  }
+
+  .animate-float {
+    animation: floatSlow 5.5s ease-in-out infinite;
+    will-change: transform;
+  }
+
+  /* Infinite rotating metallic conic halo */
+  @keyframes spinSlow {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .animate-spin-slow {
+    animation: spinSlow 10s linear infinite;
+    will-change: transform;
+  }
+
+  /* Breathing ambient aura behind the card */
+  @keyframes pulseAura {
+    0%, 100% {
+      transform: translate(-50%, -50%) scale(1);
+      opacity: 0.22;
+    }
+    50% {
+      transform: translate(-50%, -50%) scale(1.15);
+      opacity: 0.35;
+    }
+  }
+
+  .animate-pulse-aura {
+    animation: pulseAura 7s ease-in-out infinite;
+    will-change: transform, opacity;
+  }
+
+  /* Staggered mobile entrance slide-up */
+  @keyframes mobileSlideUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .animate-mobile-enter-1 {
+    animation: mobileSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 0.12s;
+  }
+
+  .animate-mobile-enter-2 {
+    animation: mobileSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 0.22s;
+  }
+
+  .animate-mobile-enter-3 {
+    animation: mobileSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 0.32s;
+  }
+
+  /* Mobile tactile spring tap effect */
+  .mobile-tap {
+    transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
+                box-shadow 0.15s ease-out,
+                border-color 0.15s ease-out,
+                filter 0.15s ease-out;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .mobile-tap:active {
+    transform: scale(0.955) translateY(1px);
+    filter: brightness(1.2);
+  }
+
+  /* Periodic luxury light beam sweep */
+  @keyframes lightSweep {
+    0% {
+      transform: translateX(-180%) skewX(-25deg);
+    }
+    20%, 100% {
+      transform: translateX(280%) skewX(-25deg);
+    }
+  }
+
+  .luxury-tile {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .luxury-tile::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 60%;
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.1),
+      transparent
+    );
+    animation: lightSweep 4.5s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  .luxury-tile-lime::before {
+    animation-delay: 0s;
+  }
+
+  .luxury-tile-emerald::before {
+    animation-delay: 1.5s;
+  }
+
+  .luxury-tile-rose::before {
+    animation-delay: 3s;
+  }
+
+  /* Star pulse animation */
+  @keyframes starPulse {
+    0%, 100% {
+      transform: scale(1);
+      filter: drop-shadow(0 0 2px rgba(163, 230, 53, 0.4));
+    }
+    50% {
+      transform: scale(1.08);
+      filter: drop-shadow(0 0 10px rgba(163, 230, 53, 0.85));
+    }
+  }
+
+  .animate-star-pulse {
+    animation: starPulse 2.6s ease-in-out infinite;
+  }
+}
