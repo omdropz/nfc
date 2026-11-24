@@ -141,8 +141,14 @@ export default function MiniPreview({ formData }) {
                 </div>
                 <div>
                   <div className="font-extrabold text-[10px] leading-tight truncate max-w-[130px]">
-                    <span className="text-white">Google </span>
-                    <span className="text-[#a3e635]">Review</span>
+                    {settings.google_review_btn_text || settings.google_review_text ? (
+                      <span className="text-white">{settings.google_review_btn_text || settings.google_review_text}</span>
+                    ) : (
+                      <>
+                        <span className="text-white">Google </span>
+                        <span className="text-[#a3e635]">Review</span>
+                      </>
+                    )}
                   </div>
                   <div className="text-[8px] font-semibold flex items-center gap-1">
                     <span className="text-amber-400">★★★★★</span>
@@ -169,8 +175,14 @@ export default function MiniPreview({ formData }) {
                 </div>
                 <div>
                   <div className="font-extrabold text-[10px] leading-tight truncate max-w-[130px]">
-                    <span className="text-white">Chat on </span>
-                    <span className="text-[#25D366]">WhatsApp</span>
+                    {settings.whatsapp_btn_text || settings.whatsapp_text ? (
+                      <span className="text-white">{settings.whatsapp_btn_text || settings.whatsapp_text}</span>
+                    ) : (
+                      <>
+                        <span className="text-white">Chat on </span>
+                        <span className="text-[#25D366]">WhatsApp</span>
+                      </>
+                    )}
                   </div>
                   <div className="text-[8px] text-[#a3e635] font-semibold flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#25D366] animate-pulse" />
@@ -197,10 +209,16 @@ export default function MiniPreview({ formData }) {
                 </div>
                 <div>
                   <div className="font-extrabold text-[10px] leading-tight truncate max-w-[130px]">
-                    <span className="text-white">Follow on </span>
-                    <span className="bg-gradient-to-r from-[#ff7a00] via-[#ff0169] to-[#d300c5] bg-clip-text text-transparent">
-                      Instagram
-                    </span>
+                    {settings.instagram_btn_text || settings.instagram_text ? (
+                      <span className="text-white">{settings.instagram_btn_text || settings.instagram_text}</span>
+                    ) : (
+                      <>
+                        <span className="text-white">Follow on </span>
+                        <span className="bg-gradient-to-r from-[#ff7a00] via-[#ff0169] to-[#d300c5] bg-clip-text text-transparent">
+                          Instagram
+                        </span>
+                      </>
+                    )}
                   </div>
                   <div className="text-[8px] text-pink-300 font-medium">Stories & Drops</div>
                 </div>

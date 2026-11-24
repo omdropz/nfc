@@ -1,4 +1,6 @@
 import axios from 'axios'
+import { idbGetPage, idbSavePage, idbListPages, idbDeletePage } from './idb.js'
+import { getSupabaseClient } from './supabase.js'
 
 const api = axios.create({
   baseURL: '/api',
@@ -95,34 +97,94 @@ function saveStoragePages(pages) {
   }
 }
 
+function broadcastUpdate(pageId, page) {
+  try {
+    window.dispatchEvent(
+      new CustomEvent('nfc_page_updated', {
+        detail: { pageId, page },
+      })
+    )
+  } catch {}
+}
+
 export const getPage = async (pageId) => {
   const target = (pageId || 'omdropz').toLowerCase()
+
+  // 1. Try Backend API
   try {
     const res = await api.get(`/pages/${target}`)
-    return res.data
-  } catch (err) {
-    // Fallback to local storage
-    const pages = getStoragePages()
-    const found =
-      pages.find((p) => p.page_id.toLowerCase() === target) ||
-      pages.find((p) => (target === 'demo' || target === 'omdropz') && (p.page_id.toLowerCase() === 'omdropz' || p.page_id.toLowerCase() === 'demo')) ||
-      pages[0]
-    if (found) {
-      return { success: true, page: found }
+    if (res.data?.page) {
+      await idbSavePage(res.data.page)
+      return res.data
     }
-    throw err
+  } catch {}
+
+  // 2. Try Supabase Database (if configured)
+  const supabase = getSupabaseClient()
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('business_pages')
+        .select('*')
+        .eq('page_id', target)
+        .single()
+      if (data && !error) {
+        await idbSavePage(data)
+        return { success: true, page: data }
+      }
+    } catch {}
   }
+
+  // 3. Try IndexedDB Persistent Database
+  const idbPage = await idbGetPage(target)
+  if (idbPage) {
+    return { success: true, page: idbPage }
+  }
+
+  // 4. Fallback to LocalStorage
+  const pages = getStoragePages()
+  const found =
+    pages.find((p) => p.page_id.toLowerCase() === target) ||
+    pages.find((p) => (target === 'demo' || target === 'omdropz') && (p.page_id.toLowerCase() === 'omdropz' || p.page_id.toLowerCase() === 'demo')) ||
+    pages[0]
+
+  if (found) {
+    idbSavePage(found).catch(() => {})
+    return { success: true, page: found }
+  }
+
+  throw new Error('Page not found')
 }
 
 export const listPages = async () => {
+  // 1. Try Backend API
   try {
     const res = await api.get('/pages')
-    return res.data
-  } catch (err) {
-    const pages = getStoragePages()
+    if (res.data?.pages && res.data.pages.length > 0) {
+      return res.data
+    }
+  } catch {}
+
+  // 2. Try Supabase Database
+  const supabase = getSupabaseClient()
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('business_pages')
+        .select('page_id, business_name, logo_url, created_at')
+        .order('created_at', { ascending: false })
+      if (data && !error && data.length > 0) {
+        return { success: true, pages: data }
+      }
+    } catch {}
+  }
+
+  // 3. Try IndexedDB Database
+  const idbList = await idbListPages()
+  if (idbList && idbList.length > 0) {
     return {
       success: true,
-      pages: pages.map((p) => ({
+      pages: idbList.map((p) => ({
         page_id: p.page_id,
         business_name: p.business_name,
         logo_url: p.logo_url,
@@ -130,74 +192,128 @@ export const listPages = async () => {
       })),
     }
   }
+
+  // 4. Fallback to LocalStorage
+  const pages = getStoragePages()
+  return {
+    success: true,
+    pages: pages.map((p) => ({
+      page_id: p.page_id,
+      business_name: p.business_name,
+      logo_url: p.logo_url,
+      created_at: p.created_at,
+    })),
+  }
 }
 
 export const createPage = async (data) => {
-  try {
-    const res = await api.post('/pages', data)
-    return res.data
-  } catch (err) {
-    const pages = getStoragePages()
-    const newPage = {
-      id: String(Date.now()),
-      page_id: data.page_id,
-      business_name: data.business_name || 'My Business',
-      logo_url: '',
-      welcome_message: 'Welcome! Tap a button to connect with us.',
-      footer_brand: 'NFCCard',
-      google_review_enabled: true,
-      google_review_url: '',
-      google_review_text: 'Leave a Review',
-      whatsapp_enabled: true,
-      whatsapp_number: '',
-      whatsapp_message: 'Hello! I found you via your NFC card.',
-      whatsapp_text: 'Chat on WhatsApp',
-      instagram_enabled: true,
-      instagram_url: '',
-      instagram_text: 'Follow on Instagram',
-      bg_color: '#4f46e5',
-      btn_color: '#4f46e5',
-      btn_style: 'solid',
-      text_color: '#ffffff',
-      font: 'Inter',
-      border_radius: 'rounded-2xl',
-      layout: 'centered',
-      theme: 'light',
-      created_at: new Date().toISOString(),
-      ...data,
-    }
-    pages.unshift(newPage)
-    saveStoragePages(pages)
-    return { success: true, page: newPage }
+  const pageId = (data.page_id || 'page-' + Date.now()).toLowerCase()
+  const newPage = {
+    id: String(Date.now()),
+    page_id: pageId,
+    business_name: data.business_name || 'My Business',
+    logo_url: data.logo_url || '',
+    welcome_message: data.welcome_message || 'Welcome! Tap a button to connect with us.',
+    footer_brand: data.footer_brand || 'OMDROPZ',
+    google_review_enabled: data.google_review_enabled !== false,
+    google_review_url: data.google_review_url || '',
+    google_review_text: data.google_review_text || 'Review on Google',
+    whatsapp_enabled: data.whatsapp_enabled !== false,
+    whatsapp_number: data.whatsapp_number || '',
+    whatsapp_message: data.whatsapp_message || 'Hello! I found you via your NFC card.',
+    whatsapp_text: data.whatsapp_text || 'Chat on WhatsApp',
+    instagram_enabled: data.instagram_enabled !== false,
+    instagram_url: data.instagram_url || '',
+    instagram_text: data.instagram_text || 'Follow on Instagram',
+    bg_color: data.bg_color || '#050507',
+    btn_color: data.btn_color || '#a3e635',
+    btn_style: data.btn_style || 'solid',
+    text_color: data.text_color || '#ffffff',
+    font: data.font || 'Poppins',
+    border_radius: data.border_radius || 'rounded-2xl',
+    layout: data.layout || 'centered',
+    theme: data.theme || 'dark',
+    created_at: new Date().toISOString(),
+    ...data,
   }
+
+  try {
+    await api.post('/pages', newPage)
+  } catch {}
+
+  const supabase = getSupabaseClient()
+  if (supabase) {
+    try {
+      await supabase.from('business_pages').insert(newPage)
+    } catch {}
+  }
+
+  await idbSavePage(newPage)
+
+  const pages = getStoragePages()
+  pages.unshift(newPage)
+  saveStoragePages(pages)
+
+  broadcastUpdate(pageId, newPage)
+  return { success: true, page: newPage }
 }
 
 export const updatePage = async (pageId, data) => {
+  const target = (pageId || 'omdropz').toLowerCase()
+  const payload = { ...data, page_id: target, updated_at: new Date().toISOString() }
+
+  // 1. Backend API
   try {
-    const res = await api.put(`/pages/${pageId}`, data)
-    return res.data
-  } catch (err) {
-    const pages = getStoragePages()
-    const idx = pages.findIndex((p) => p.page_id.toLowerCase() === pageId.toLowerCase())
-    if (idx !== -1) {
-      pages[idx] = { ...pages[idx], ...data, updated_at: new Date().toISOString() }
-      saveStoragePages(pages)
-      return { success: true, page: pages[idx] }
-    }
-    throw err
+    await api.put(`/pages/${target}`, payload)
+  } catch {}
+
+  // 2. Supabase PostgreSQL
+  const supabase = getSupabaseClient()
+  if (supabase) {
+    try {
+      await supabase.from('business_pages').upsert(payload, { onConflict: 'page_id' })
+    } catch {}
   }
+
+  // 3. IndexedDB Database
+  await idbSavePage(payload)
+
+  // 4. LocalStorage
+  const pages = getStoragePages()
+  const idx = pages.findIndex((p) => p.page_id.toLowerCase() === target)
+  if (idx !== -1) {
+    pages[idx] = { ...pages[idx], ...payload }
+  } else {
+    pages.unshift(payload)
+  }
+  saveStoragePages(pages)
+
+  // 5. Broadcast real-time update
+  broadcastUpdate(target, payload)
+
+  return { success: true, page: payload }
 }
 
 export const deletePage = async (pageId) => {
+  const target = (pageId || '').toLowerCase()
   try {
-    const res = await api.delete(`/pages/${pageId}`)
-    return res.data
-  } catch (err) {
-    const pages = getStoragePages()
-    const filtered = pages.filter((p) => p.page_id.toLowerCase() !== pageId.toLowerCase())
-    saveStoragePages(filtered)
-    return { success: true }
+    await api.delete(`/pages/${target}`)
+  } catch {}
+
+  const supabase = getSupabaseClient()
+  if (supabase) {
+    try {
+      await supabase.from('business_pages').delete().eq('page_id', target)
+    } catch {}
   }
+
+  await idbDeletePage(target)
+
+  const pages = getStoragePages()
+  const filtered = pages.filter((p) => p.page_id.toLowerCase() !== target)
+  saveStoragePages(filtered)
+
+  return { success: true }
 }
 
 export const login = async (email, password) => {
@@ -217,24 +333,22 @@ export const login = async (email, password) => {
 
 export const logout = async () => {
   try {
-    const res = await api.post('/auth/logout')
-    return res.data
-  } catch {
-    localStorage.removeItem('admin_token')
-    return { success: true }
-  }
+    await api.post('/auth/logout')
+  } catch {}
+  localStorage.removeItem('admin_token')
+  return { success: true }
 }
 
 export const verifyAuth = async () => {
   try {
     const res = await api.get('/auth/verify')
     return res.data
-  } catch (err) {
+  } catch {
     const token = localStorage.getItem('admin_token')
     if (token) {
-      return { success: true, user: { email: 'admin@yoursite.com', role: 'admin' } }
+      return { success: true, user: { role: 'admin' } }
     }
-    throw err
+    throw new Error('Unauthenticated')
   }
 }
 

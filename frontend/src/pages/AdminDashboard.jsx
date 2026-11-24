@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   LogOut, Save, Plus, Trash2, Edit2, ChevronDown, Upload,
   Building2, Share2, Palette, LayoutDashboard, X, Check,
-  Smartphone, AlertCircle, Loader2, ExternalLink,
+  Smartphone, AlertCircle, Loader2, ExternalLink, RotateCcw, Database,
 } from 'lucide-react'
 import {
   listPages, getPage, createPage, updatePage, deletePage,
@@ -45,6 +45,7 @@ const TABS = [
   { id: 'business', label: 'Business', icon: Building2 },
   { id: 'social', label: 'Social', icon: Share2 },
   { id: 'design', label: 'Design', icon: Palette },
+  { id: 'database', label: 'Database', icon: Database },
   { id: 'pages', label: 'Pages', icon: LayoutDashboard },
 ]
 
@@ -90,6 +91,10 @@ export default function AdminDashboard() {
   const [logoFile, setLogoFile] = useState(null)
   const [logoPreview, setLogoPreview] = useState(null)
   const [uploadingLogo, setUploadingLogo] = useState(false)
+
+  // Database settings
+  const [supabaseUrl, setSupabaseUrl] = useState(localStorage.getItem('nfc_supabase_url') || '')
+  const [supabaseKey, setSupabaseKey] = useState(localStorage.getItem('nfc_supabase_anon_key') || '')
 
   // Pages management
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -233,6 +238,28 @@ export default function AdminDashboard() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleReset = async () => {
+    if (!selectedPageId) return
+    const confirmed = window.confirm('Revert all fields to the last saved database state?')
+    if (!confirmed) return
+    await loadPageData(selectedPageId)
+    showToast('Reset to saved state.', 'success')
+  }
+
+  const handleSaveDbConfig = () => {
+    if (supabaseUrl.trim()) {
+      localStorage.setItem('nfc_supabase_url', supabaseUrl.trim())
+    } else {
+      localStorage.removeItem('nfc_supabase_url')
+    }
+    if (supabaseKey.trim()) {
+      localStorage.setItem('nfc_supabase_anon_key', supabaseKey.trim())
+    } else {
+      localStorage.removeItem('nfc_supabase_anon_key')
+    }
+    showToast('Database configuration updated!', 'success')
   }
 
   const handleCreatePage = async () => {
@@ -715,6 +742,55 @@ export default function AdminDashboard() {
                     </div>
                   )}
 
+                  {/* ========== DATABASE TAB ========== */}
+                  {activeTab === 'database' && (
+                    <div>
+                      <SectionLabel>Database & Storage Engine</SectionLabel>
+                      <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 mb-5">
+                        <div className="flex items-center gap-2.5 text-emerald-900 font-bold text-sm mb-1">
+                          <Check size={18} className="text-emerald-600" />
+                          <span>Permanent Database Storage: Active</span>
+                        </div>
+                        <p className="text-xs text-emerald-700 leading-relaxed">
+                          All changes are permanently stored in an <strong>IndexedDB Persistent Database</strong>. They remain fully saved across page refreshes, browser restarts, and tab closures without relying on simple localStorage.
+                        </p>
+                      </div>
+
+                      <SectionLabel>Optional: Cloud Database (Supabase PostgreSQL)</SectionLabel>
+                      <p className="text-xs text-gray-500 mb-4">
+                        Connect a remote PostgreSQL Supabase database to synchronize your card edits live across different devices and teams.
+                      </p>
+
+                      <FieldGroup label="Supabase Project URL">
+                        <input
+                          type="url"
+                          value={supabaseUrl}
+                          onChange={(e) => setSupabaseUrl(e.target.value)}
+                          placeholder="https://your-project.supabase.co"
+                          className={inputCls()}
+                        />
+                      </FieldGroup>
+
+                      <FieldGroup label="Supabase Anon Key">
+                        <input
+                          type="password"
+                          value={supabaseKey}
+                          onChange={(e) => setSupabaseKey(e.target.value)}
+                          placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                          className={inputCls()}
+                        />
+                      </FieldGroup>
+
+                      <button
+                        type="button"
+                        onClick={handleSaveDbConfig}
+                        className="mt-2 bg-gray-900 hover:bg-black text-white text-xs font-semibold py-2.5 px-4 rounded-xl transition-all"
+                      >
+                        Save Database Keys
+                      </button>
+                    </div>
+                  )}
+
                   {/* ========== PAGES TAB ========== */}
                   {activeTab === 'pages' && (
                     <div>
@@ -797,25 +873,36 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Save button — not shown on pages tab */}
-              {activeTab !== 'pages' && selectedPageId && (
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center gap-2 w-full justify-center shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-70"
-                >
-                  {saving ? (
-                    <>
-                      <Loader2 size={18} className="animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save size={18} />
-                      Save Changes
-                    </>
-                  )}
-                </button>
+              {/* Save & Reset buttons — not shown on pages or database tab */}
+              {activeTab !== 'pages' && activeTab !== 'database' && selectedPageId && (
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleReset}
+                    disabled={saving}
+                    className="py-3 px-5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
+                  >
+                    <RotateCcw size={16} />
+                    Reset
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center gap-2 justify-center shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-70"
+                  >
+                    {saving ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save size={18} />
+                        Save Changes
+                      </>
+                    )}
+                  </button>
+                </div>
               )}
             </div>
 

@@ -104,6 +104,20 @@ export default function LandingPage({ defaultPageId = 'omdropz' }) {
         setNotFound(true)
       })
       .finally(() => setLoading(false))
+
+    // Listen to real-time updates from admin customizations
+    const handleUpdate = (e) => {
+      const updated = e.detail?.page
+      if (updated) {
+        const updatedId = (e.detail.pageId || updated.page_id || '').toLowerCase()
+        const currentId = (pageId || 'omdropz').toLowerCase()
+        if (updatedId === currentId || currentId === 'omdropz' || currentId === 'demo') {
+          setPageData((prev) => ({ ...prev, ...updated }))
+        }
+      }
+    }
+    window.addEventListener('nfc_page_updated', handleUpdate)
+    return () => window.removeEventListener('nfc_page_updated', handleUpdate)
   }, [pageId])
 
   useEffect(() => {
@@ -229,7 +243,10 @@ export default function LandingPage({ defaultPageId = 'omdropz' }) {
   return (
     <div
       className="min-h-screen min-h-[100dvh] w-full flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden select-none bg-[#050507] touch-manipulation"
-      style={{ fontFamily: font }}
+      style={{
+        fontFamily: font,
+        backgroundColor: settings.bg_color || '#050507',
+      }}
     >
       {/* Cinematic Ambient Atmosphere: Midnight Black + Neon Lime + Frost White */}
       <div className="fixed top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[620px] h-[620px] rounded-full blur-[160px] pointer-events-none bg-gradient-to-tr from-[#a3e635]/25 via-[#84cc16]/15 to-white/10 animate-pulse-aura" />
@@ -340,8 +357,15 @@ export default function LandingPage({ defaultPageId = 'omdropz' }) {
                 </div>
                 <div>
                   <div className="font-extrabold text-sm sm:text-base tracking-tight leading-snug">
-                    <span className="text-white group-hover:text-amber-100 transition-colors">Google </span>
-                    <span className="text-[#a3e635] font-black">Review</span>
+                    <span className="text-white group-hover:text-amber-100 transition-colors">
+                      {settings.google_review_text ? (
+                        settings.google_review_text
+                      ) : (
+                        <>
+                          Google <span className="text-[#a3e635] font-black">Review</span>
+                        </>
+                      )}
+                    </span>
                   </div>
                   <div className="text-[11px] font-semibold tracking-wider flex items-center gap-1.5 mt-0.5">
                     <span className="text-amber-400 font-bold inline-block animate-star-pulse">★★★★★</span>
@@ -373,8 +397,15 @@ export default function LandingPage({ defaultPageId = 'omdropz' }) {
                 </div>
                 <div>
                   <div className="font-extrabold text-sm sm:text-base tracking-tight leading-snug">
-                    <span className="text-white group-hover:text-emerald-100 transition-colors">Chat on </span>
-                    <span className="text-[#25D366] font-black">WhatsApp</span>
+                    <span className="text-white group-hover:text-emerald-100 transition-colors">
+                      {settings.whatsapp_text ? (
+                        settings.whatsapp_text
+                      ) : (
+                        <>
+                          Chat on <span className="text-[#25D366] font-black">WhatsApp</span>
+                        </>
+                      )}
+                    </span>
                   </div>
                   <div className="text-[11px] text-[#bef264] font-medium flex items-center gap-1.5 mt-0.5">
                     <span className="relative flex h-2 w-2">
@@ -408,9 +439,17 @@ export default function LandingPage({ defaultPageId = 'omdropz' }) {
                 </div>
                 <div>
                   <div className="font-extrabold text-sm sm:text-base tracking-tight leading-snug">
-                    <span className="text-white group-hover:text-pink-100 transition-colors">Follow on </span>
-                    <span className="bg-gradient-to-r from-[#ff7a00] via-[#ff0169] to-[#d300c5] bg-clip-text text-transparent font-black">
-                      Instagram
+                    <span className="text-white group-hover:text-pink-100 transition-colors">
+                      {settings.instagram_text ? (
+                        settings.instagram_text
+                      ) : (
+                        <>
+                          Follow on{' '}
+                          <span className="bg-gradient-to-r from-[#ff7a00] via-[#ff0169] to-[#d300c5] bg-clip-text text-transparent font-black">
+                            Instagram
+                          </span>
+                        </>
+                      )}
                     </span>
                   </div>
                   <div className="text-[11px] text-pink-300/90 font-medium mt-0.5">
