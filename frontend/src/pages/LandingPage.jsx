@@ -7,6 +7,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { getPage } from '../lib/api.js'
+import { recordCardScan } from '../lib/businessStore.js'
 import LoadingSpinner from '../components/LoadingSpinner.jsx'
 
 // Official Brand Vector Icons
@@ -129,6 +130,24 @@ export default function LandingPage({ defaultPageId = 'omdropz' }) {
     return () => document.documentElement.classList.remove('dark')
   }, [pageData])
 
+  // Single Dynamic QR Card auto-redirect effect
+  const isSingleQr = Boolean(
+    pageData?.card_type &&
+    pageData.card_type !== '3in1'
+  )
+
+  useEffect(() => {
+    if (pageData && isSingleQr && pageData.destination_url) {
+      try {
+        recordCardScan(pageData.card_id)
+      } catch {}
+      const timer = setTimeout(() => {
+        window.location.replace(pageData.destination_url)
+      }, 80)
+      return () => clearTimeout(timer)
+    }
+  }, [pageData, isSingleQr])
+
   const handleMouseMove = (e) => {
     if (!cardRef.current) return
     const rect = cardRef.current.getBoundingClientRect()
@@ -227,6 +246,114 @@ export default function LandingPage({ defaultPageId = 'omdropz' }) {
             className="w-full bg-lime-400 hover:bg-lime-300 text-black font-extrabold py-3.5 px-5 rounded-2xl transition-all text-sm shadow-lg shadow-lime-400/20"
           >
             Go to Admin
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Single Dynamic QR Card handling (Google Review, Instagram, WhatsApp) ──
+  if (isSingleQr) {
+    if (pageData.destination_url) {
+      const typeLabel =
+        pageData.card_type === 'google_review'
+          ? 'Google Review'
+          : pageData.card_type === 'instagram'
+          ? 'Instagram'
+          : 'WhatsApp'
+
+      return (
+        <div className="min-h-screen min-h-[100dvh] w-full flex flex-col justify-between items-center bg-[#050507] text-white p-6 relative overflow-hidden select-none font-sans">
+          {/* Ambient Glow */}
+          <div className="fixed top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] rounded-full blur-[140px] pointer-events-none bg-gradient-to-tr from-[#a3e635]/25 via-emerald-500/15 to-transparent" />
+
+          {/* Top minimal status bar */}
+          <div className="w-full max-w-sm flex items-center justify-between pt-4 z-10 text-xs font-mono text-gray-400">
+            <span className="flex items-center gap-1.5 text-lime-400 font-semibold tracking-wider">
+              <Zap size={14} className="animate-pulse" /> DYNAMIC QR
+            </span>
+            <span className="px-2.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-gray-300">
+              #{pageData.card_id}
+            </span>
+          </div>
+
+          {/* Center Card */}
+          <div className="w-full max-w-sm my-auto z-10 text-center py-6">
+            <div className="relative mx-auto w-24 h-24 mb-6 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-3xl bg-lime-400/20 blur-xl animate-pulse" />
+              <div className="relative w-24 h-24 rounded-3xl bg-[#0e1015] border border-lime-400/30 flex items-center justify-center shadow-2xl">
+                {pageData.card_type === 'google_review' && <GoogleIcon className="w-12 h-12" />}
+                {pageData.card_type === 'instagram' && <InstagramIcon className="w-12 h-12 text-pink-500" />}
+                {pageData.card_type === 'whatsapp' && <WhatsAppIcon className="w-12 h-12 text-emerald-400" />}
+              </div>
+            </div>
+
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-lime-400/10 border border-lime-400/20 text-lime-400 text-xs font-mono font-bold tracking-wider uppercase mb-3">
+              <span className="w-2 h-2 rounded-full bg-lime-400 animate-ping" />
+              {typeLabel}
+            </div>
+
+            <h1 className="text-2xl font-black text-white tracking-tight mb-2">
+              {pageData.business_name || 'Direct Link'}
+            </h1>
+            <p className="text-gray-400 text-sm mb-6 max-w-xs mx-auto leading-relaxed">
+              Redirecting you to official {typeLabel}...
+            </p>
+
+            <a
+              href={pageData.destination_url}
+              onClick={playHapticClick}
+              className="w-full inline-flex items-center justify-center gap-2 bg-lime-400 hover:bg-lime-300 text-black font-black py-4 px-6 rounded-2xl transition-all shadow-xl shadow-lime-400/20 active:scale-[0.98] text-base group"
+            >
+              <span>Open Directly</span>
+              <ArrowUpRight size={18} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+            </a>
+
+            <div className="mt-4 flex items-center justify-center gap-2 text-[11px] text-gray-500 font-mono">
+              <span className="w-1.5 h-1.5 rounded-full bg-lime-400 animate-pulse" />
+              <span>Auto-opening in a moment...</span>
+            </div>
+          </div>
+
+          {/* Footer brand with triple-tap for admin access */}
+          <div className="pb-4 z-10 text-center">
+            <button
+              onClick={handleFooterBrandTap}
+              className="text-[11px] tracking-[0.25em] uppercase text-gray-600 hover:text-gray-400 font-mono transition-colors"
+            >
+              POWERED BY NFC SAGE
+            </button>
+          </div>
+        </div>
+      )
+    }
+
+    // Unassigned Single QR card
+    const typeLabel =
+      pageData.card_type === 'google_review'
+        ? 'Google Review'
+        : pageData.card_type === 'instagram'
+        ? 'Instagram'
+        : 'WhatsApp'
+
+    return (
+      <div className="min-h-screen min-h-[100dvh] flex items-center justify-center bg-[#050507] p-6 text-white font-sans select-none">
+        <div className="text-center bg-[#0d0e12] rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-white/10 relative">
+          <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 mx-auto mb-4 flex items-center justify-center text-lime-400">
+            <Wifi size={28} />
+          </div>
+          <span className="inline-block px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-mono font-semibold uppercase mb-3">
+            Unassigned {typeLabel} Card
+          </span>
+          <h1 className="text-xl font-bold mb-2">Card #{pageData.card_id}</h1>
+          <p className="text-gray-400 text-sm mb-6 leading-relaxed">
+            This dynamic {typeLabel} card is ready for setup. Configure its destination URL in the Admin Dashboard.
+          </p>
+          <button
+            onClick={() => navigate('/admin/login')}
+            className="w-full bg-lime-400 hover:bg-lime-300 text-black font-extrabold py-3.5 px-5 rounded-2xl transition-all text-sm shadow-lg shadow-lime-400/20"
+          >
+            Configure in Admin
           </button>
         </div>
       </div>

@@ -26,6 +26,44 @@ export const BUSINESS_CATEGORIES = [
   'Other',
 ]
 
+export const QR_CARD_TYPES = [
+  { id: '3in1', label: '3-in-1 QR Card', desc: 'Custom landing page with Google Review, WhatsApp & Instagram' },
+  { id: 'google_review', label: 'Google Review QR', desc: 'Direct dynamic redirect to Google Review page' },
+  { id: 'instagram', label: 'Instagram QR', desc: 'Direct dynamic redirect to Instagram profile' },
+  { id: 'whatsapp', label: 'WhatsApp QR', desc: 'Direct dynamic redirect to WhatsApp chat' },
+]
+
+/**
+ * Format phone number into direct WhatsApp chat URL
+ */
+export function formatWhatsAppChatUrl(phone, message = '') {
+  const digits = String(phone || '').replace(/\D/g, '')
+  if (!digits) return ''
+  const base = `https://wa.me/${digits}`
+  return message ? `${base}?text=${encodeURIComponent(message.trim())}` : base
+}
+
+/**
+ * Clean & format Instagram profile URL
+ */
+export function formatInstagramUrl(input) {
+  const str = String(input || '').trim()
+  if (!str) return ''
+  if (/^https?:\/\//i.test(str)) return str
+  const handle = str.replace(/^@/, '').replace(/\/+$/, '').trim()
+  return `https://instagram.com/${handle}`
+}
+
+/**
+ * Clean & format Google Review URL
+ */
+export function formatGoogleReviewUrl(input) {
+  const str = String(input || '').trim()
+  if (!str) return ''
+  if (/^https?:\/\//i.test(str)) return str
+  return `https://${str}`
+}
+
 /**
  * Flexible card ID formatter:
  * 1 -> '001', 50 -> '050', 100 -> '100', 1000 -> '1000'
@@ -39,9 +77,9 @@ export function formatCardId(val) {
   return str
 }
 
-export function generateCardUrl(cardId, baseUrl = DEFAULT_BASE_URL) {
+export function generateCardUrl(cardId, baseUrl = DEFAULT_BASE_URL, pathPrefix = 'p') {
   const cleanBase = baseUrl.replace(/\/+$/, '')
-  return `${cleanBase}/c/${formatCardId(cardId)}`
+  return `${cleanBase}/${pathPrefix}/${formatCardId(cardId)}`
 }
 
 export function generateBusinessId() {
@@ -89,13 +127,19 @@ export async function initBusinessStore(baseUrl = DEFAULT_BASE_URL) {
 
   for (let i = 1; i <= 50; i++) {
     const cardId = formatCardId(i)
-    const permanentUrl = generateCardUrl(cardId, baseUrl)
+    const permanentUrl = generateCardUrl(cardId, baseUrl, 'p')
     const newCard = {
       card_id: cardId,
       card_number: cardId,
+      card_type: '3in1',
       status: 'available', // 'available' | 'assigned' | 'linked' | 'active'
       nfc_status: 'not_programmed', // 'not_programmed' | 'programmed' | 'tested'
       business_id: null,
+      business_name: '',
+      destination_url: '',
+      whatsapp_number: '',
+      whatsapp_message: '',
+      scan_count: 0,
       permanent_url: permanentUrl,
       nfc_url: permanentUrl,
       qrhub_qr_id: null,
@@ -117,19 +161,25 @@ export async function initBusinessStore(baseUrl = DEFAULT_BASE_URL) {
 
 /**
  * Create a single new NFC Card with an automatically or custom generated Card ID.
- * Unlimited card support.
+ * Supports '3in1', 'google_review', 'instagram', or 'whatsapp'.
  */
-export async function createCard(customCardId = null, baseUrl = DEFAULT_BASE_URL) {
+export async function createCard(customCardId = null, baseUrl = DEFAULT_BASE_URL, cardType = '3in1') {
   const cardId = customCardId ? formatCardId(customCardId) : await getNextCardId()
-  const permanentUrl = generateCardUrl(cardId, baseUrl)
+  const permanentUrl = generateCardUrl(cardId, baseUrl, 'p')
   const now = new Date().toISOString()
 
   const newCard = {
     card_id: cardId,
     card_number: cardId,
+    card_type: cardType,
     status: 'available',
     nfc_status: 'not_programmed',
     business_id: null,
+    business_name: '',
+    destination_url: '',
+    whatsapp_number: '',
+    whatsapp_message: '',
+    scan_count: 0,
     permanent_url: permanentUrl,
     nfc_url: permanentUrl,
     qrhub_qr_id: null,
@@ -158,10 +208,244 @@ export async function createCard(customCardId = null, baseUrl = DEFAULT_BASE_URL
 }
 
 /**
+ * Create a Single Dynamic QR Card:
+ * - 'google_review'
+ * - 'instagram'
+ * - 'whatsapp'
+ */
+export async function createSingleQrCard({
+  type = 'google_review',
+  businessName = '',
+  destinationUrl = '',
+  whatsappNumber = '',
+  whatsappMessage = '',
+  customCardId = null,
+  baseUrl = DEFAULT_BASE_URL,
+}) {
+  const cardId = customCardId ? formatCardId(customCardId) : await getNextCardId()
+  const permanentUrl = generateCardUrl(cardId, baseUrl, 'p')
+  const now = new Date().toISOString()
+
+  let finalDestination = destinationUrl.trim()
+  if (type === 'whatsapp') {
+    finalDestination = formatWhatsAppChatUrl(whatsappNumber, whatsappMessage)
+  } else if (type === 'instagram') {
+    finalDestination = formatInstagramUrl(destinationUrl)
+  } else if (type === 'google_review') {
+    finalDestination = formatGoogleReviewUrl(destinationUrl)
+  }
+
+  const newCard = {
+    card_id: cardId,
+    card_number: cardId,
+    card_type: type,
+    status: finalDestination ? 'active' : 'available',
+    nfc_status: 'not_programmed',
+    business_id: null,
+    business_name: businessName.trim() || `Card ${cardId}`,
+    destination_url: finalDestination,
+    whatsapp_number: whatsappNumber.trim(),
+    whatsapp_message: whatsappMessage.trim(),
+    scan_count: 0,
+    permanent_url: permanentUrl,
+    nfc_url: permanentUrl,
+    qrhub_qr_id: null,
+    created_at: now,
+    updated_at: now,
+  }
+
+  await idbSaveCard(newCard)
+
+  const supabase = getSupabaseClient()
+  if (supabase) {
+    try {
+      await supabase.from('nfc_cards').upsert(newCard, { onConflict: 'card_id' })
+    } catch (err) {
+      console.warn('Supabase createSingleQrCard sync warning:', err)
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('nfc_card_created', { detail: { card: newCard } }))
+  }
+
+  return newCard
+}
+
+/**
+ * Bulk create Single Dynamic QR Cards (e.g. 10, 50, 100)
+ */
+export async function bulkCreateSingleQrCards({
+  quantity,
+  type = 'google_review',
+  businessName = '',
+  destinationUrl = '',
+  whatsappNumber = '',
+  whatsappMessage = '',
+  baseUrl = DEFAULT_BASE_URL,
+  onProgress = null,
+}) {
+  const count = parseInt(quantity, 10)
+  if (isNaN(count) || count <= 0) {
+    throw new Error('Quantity must be a positive integer')
+  }
+
+  const existingCards = await idbListCards()
+  let maxNum = 0
+  existingCards.forEach((c) => {
+    const rawId = String(c.card_id || '').trim()
+    if (/^\d+$/.test(rawId)) {
+      const num = parseInt(rawId, 10)
+      if (num > maxNum) maxNum = num
+    }
+  })
+
+  let finalDestination = destinationUrl.trim()
+  if (type === 'whatsapp') {
+    finalDestination = formatWhatsAppChatUrl(whatsappNumber, whatsappMessage)
+  } else if (type === 'instagram') {
+    finalDestination = formatInstagramUrl(destinationUrl)
+  } else if (type === 'google_review') {
+    finalDestination = formatGoogleReviewUrl(destinationUrl)
+  }
+
+  const newCards = []
+  const supabase = getSupabaseClient()
+  const now = new Date().toISOString()
+
+  for (let i = 1; i <= count; i++) {
+    const nextNum = maxNum + i
+    const cardId = formatCardId(nextNum)
+    const permanentUrl = generateCardUrl(cardId, baseUrl, 'p')
+
+    const card = {
+      card_id: cardId,
+      card_number: cardId,
+      card_type: type,
+      status: finalDestination ? 'active' : 'available',
+      nfc_status: 'not_programmed',
+      business_id: null,
+      business_name: businessName.trim() ? `${businessName.trim()} (${cardId})` : `QR Card ${cardId}`,
+      destination_url: finalDestination,
+      whatsapp_number: whatsappNumber.trim(),
+      whatsapp_message: whatsappMessage.trim(),
+      scan_count: 0,
+      permanent_url: permanentUrl,
+      nfc_url: permanentUrl,
+      qrhub_qr_id: null,
+      created_at: now,
+      updated_at: now,
+    }
+
+    newCards.push(card)
+    await idbSaveCard(card)
+
+    if (onProgress && (i % 10 === 0 || i === count)) {
+      onProgress(i, count)
+    }
+  }
+
+  if (supabase) {
+    try {
+      await supabase.from('nfc_cards').upsert(newCards, { onConflict: 'card_id' })
+    } catch {}
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('nfc_cards_bulk_created', { detail: { cards: newCards } }))
+  }
+
+  return newCards
+}
+
+/**
+ * Update Single Dynamic QR Card details (destination URL, business name, WhatsApp).
+ * Permanent URL and printed QR code NEVER change!
+ */
+export async function updateSingleQrCard(cardId, updates) {
+  const formattedId = formatCardId(cardId)
+  const card = await idbGetCard(formattedId)
+  if (!card) throw new Error(`Card ${cardId} not found`)
+
+  const effectiveType = updates.card_type || card.card_type || 'google_review'
+  let finalDestination = updates.destination_url !== undefined ? updates.destination_url.trim() : (card.destination_url || '')
+
+  if (effectiveType === 'whatsapp') {
+    const waNumber = updates.whatsapp_number !== undefined ? updates.whatsapp_number : card.whatsapp_number
+    const waMsg = updates.whatsapp_message !== undefined ? updates.whatsapp_message : card.whatsapp_message
+    if (waNumber) {
+      finalDestination = formatWhatsAppChatUrl(waNumber, waMsg)
+    }
+  } else if (effectiveType === 'instagram' && finalDestination) {
+    finalDestination = formatInstagramUrl(finalDestination)
+  } else if (effectiveType === 'google_review' && finalDestination) {
+    finalDestination = formatGoogleReviewUrl(finalDestination)
+  }
+
+  const now = new Date().toISOString()
+  const updated = {
+    ...card,
+    card_type: effectiveType,
+    business_name: updates.business_name !== undefined ? updates.business_name.trim() : (card.business_name || ''),
+    destination_url: finalDestination,
+    whatsapp_number: updates.whatsapp_number !== undefined ? updates.whatsapp_number.trim() : (card.whatsapp_number || ''),
+    whatsapp_message: updates.whatsapp_message !== undefined ? updates.whatsapp_message.trim() : (card.whatsapp_message || ''),
+    status: updates.status || (finalDestination ? 'active' : 'available'),
+    updated_at: now,
+    // Note: permanent_url and nfc_url remain unchanged!
+  }
+
+  await idbSaveCard(updated)
+
+  const supabase = getSupabaseClient()
+  if (supabase) {
+    try {
+      await supabase.from('nfc_cards').upsert(updated, { onConflict: 'card_id' })
+    } catch (err) {
+      console.warn('Supabase updateSingleQrCard warning:', err)
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('nfc_card_status_updated', {
+        detail: { cardId: formattedId, card: updated },
+      })
+    )
+  }
+
+  return updated
+}
+
+/**
+ * Record a QR scan or NFC tap count
+ */
+export async function recordCardScan(cardId) {
+  try {
+    const formattedId = formatCardId(cardId)
+    const card = await idbGetCard(formattedId)
+    if (!card) return
+    const updated = {
+      ...card,
+      scan_count: (card.scan_count || 0) + 1,
+      last_scanned_at: new Date().toISOString(),
+    }
+    await idbSaveCard(updated)
+    const supabase = getSupabaseClient()
+    if (supabase) {
+      await supabase.from('nfc_cards').update({
+        scan_count: updated.scan_count,
+        last_scanned_at: updated.last_scanned_at,
+      }).eq('card_id', formattedId)
+    }
+  } catch {}
+}
+
+/**
  * Bulk create any quantity of NFC Cards (e.g. 10, 50, 100, 500 or more).
  * Calculates sequential IDs and persists each card.
  */
-export async function bulkCreateCards(quantity, baseUrl = DEFAULT_BASE_URL, onProgress = null) {
+export async function bulkCreateCards(quantity, baseUrl = DEFAULT_BASE_URL, onProgress = null, cardType = '3in1') {
   const count = parseInt(quantity, 10)
   if (isNaN(count) || count <= 0) {
     throw new Error('Quantity must be a positive integer')
@@ -184,14 +468,20 @@ export async function bulkCreateCards(quantity, baseUrl = DEFAULT_BASE_URL, onPr
   for (let i = 1; i <= count; i++) {
     const nextNum = maxNum + i
     const cardId = formatCardId(nextNum)
-    const permanentUrl = generateCardUrl(cardId, baseUrl)
+    const permanentUrl = generateCardUrl(cardId, baseUrl, 'p')
 
     const card = {
       card_id: cardId,
       card_number: cardId,
+      card_type: cardType,
       status: 'available',
       nfc_status: 'not_programmed',
       business_id: null,
+      business_name: '',
+      destination_url: '',
+      whatsapp_number: '',
+      whatsapp_message: '',
+      scan_count: 0,
       permanent_url: permanentUrl,
       nfc_url: permanentUrl,
       qrhub_qr_id: null,
@@ -316,17 +606,23 @@ export async function getAllCards(baseUrl = DEFAULT_BASE_URL) {
 
   return cards.map((c) => {
     const biz = c.business_id ? bizMap.get(String(c.business_id).toLowerCase()) : null
+    const cardType = c.card_type || '3in1'
     return {
       ...c,
+      card_type: cardType,
       nfc_status: c.nfc_status || 'not_programmed',
       business: biz || null,
-      business_name: biz ? biz.name : '',
+      business_name: c.business_name || (biz ? biz.name : ''),
+      destination_url: c.destination_url || (biz ? biz.google_review_url : '') || '',
+      whatsapp_number: c.whatsapp_number || (biz ? biz.whatsapp_number : '') || '',
+      scan_count: c.scan_count || 0,
+      last_scanned_at: c.last_scanned_at || null,
     }
   })
 }
 
 /**
- * Scalable paginated cards query with search and status filter.
+ * Scalable paginated cards query with search, status filter, and QR type filter.
  * Ensures the dashboard stays fast even with thousands of cards.
  */
 export async function getCardsPaginated({
@@ -334,6 +630,7 @@ export async function getCardsPaginated({
   pageSize = 25,
   search = '',
   status = 'all',
+  qrType = 'all',
   baseUrl = DEFAULT_BASE_URL,
 }) {
   const allCards = await getAllCards(baseUrl)
@@ -341,9 +638,16 @@ export async function getCardsPaginated({
   // Overall metrics across ALL cards
   const metrics = {
     totalCards: allCards.length,
-    availableCards: allCards.filter((c) => c.status === 'available' || !c.business_id).length,
-    assignedCards: allCards.filter((c) => c.status === 'assigned' || c.status === 'linked' || c.status === 'active').length,
+    availableCards: allCards.filter((c) => c.status === 'available' || (!c.business_id && !c.destination_url)).length,
+    assignedCards: allCards.filter((c) => c.status === 'assigned' || c.status === 'linked' || c.status === 'active' || !!c.destination_url).length,
     linkedCards: allCards.filter((c) => c.status === 'linked').length,
+    total3in1: allCards.filter((c) => (c.card_type || '3in1') === '3in1').length,
+    totalGoogleReview: allCards.filter((c) => c.card_type === 'google_review').length,
+    totalInstagram: allCards.filter((c) => c.card_type === 'instagram').length,
+    totalWhatsApp: allCards.filter((c) => c.card_type === 'whatsapp').length,
+    notProgrammed: allCards.filter((c) => !c.nfc_status || c.nfc_status === 'not_programmed').length,
+    programmed: allCards.filter((c) => c.nfc_status === 'programmed').length,
+    tested: allCards.filter((c) => c.nfc_status === 'tested').length,
   }
 
   const query = search.trim().toLowerCase()
@@ -353,14 +657,23 @@ export async function getCardsPaginated({
       !query ||
       String(c.card_id).toLowerCase().includes(query) ||
       (c.business_name && c.business_name.toLowerCase().includes(query)) ||
+      (c.destination_url && c.destination_url.toLowerCase().includes(query)) ||
+      (c.permanent_url && c.permanent_url.toLowerCase().includes(query)) ||
+      (c.whatsapp_number && c.whatsapp_number.toLowerCase().includes(query)) ||
       (c.business_id && String(c.business_id).toLowerCase().includes(query))
 
     if (!matchesSearch) return false
 
-    if (status === 'available') return c.status === 'available' || !c.business_id
+    // QR Type Filter
+    if (qrType && qrType !== 'all') {
+      const cType = c.card_type || '3in1'
+      if (cType !== qrType) return false
+    }
+
+    if (status === 'available') return c.status === 'available' || (!c.business_id && !c.destination_url)
     if (status === 'assigned') return c.status === 'assigned'
     if (status === 'linked') return c.status === 'linked'
-    if (status === 'active') return c.status === 'active'
+    if (status === 'active') return c.status === 'active' || !!c.destination_url
 
     return true
   })

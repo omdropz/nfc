@@ -38,12 +38,19 @@ import {
   ShieldCheck,
   ArrowRight,
   Wifi,
+  Share2,
+  Sliders,
+  Send,
+  MessageCircle,
 } from 'lucide-react'
 import {
   getAllCards,
   getAllBusinesses,
   createCard,
+  createSingleQrCard,
   bulkCreateCards,
+  bulkCreateSingleQrCards,
+  updateSingleQrCard,
   deleteCardRecord,
   getNextCardId,
   updateCardNfcStatus,
@@ -54,15 +61,48 @@ import {
   deleteBusiness,
   resetOwnerPin,
   formatCardId,
+  formatWhatsAppChatUrl,
+  formatInstagramUrl,
+  formatGoogleReviewUrl,
+  QR_CARD_TYPES,
   BUSINESS_CATEGORIES,
   DEFAULT_BASE_URL,
 } from '../lib/businessStore.js'
 import {
   generateQRDataURL,
+  generateQRSVG,
   downloadSingleQRPNG,
+  downloadSingleQRSVG,
   downloadAllCardsZip,
   downloadCSVFile,
 } from '../lib/qrHelper.js'
+
+function GoogleBrandIcon({ className = "w-4 h-4" }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} xmlns="http://www.w3.org/2000/svg">
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+    </svg>
+  )
+}
+
+function WhatsAppBrandIcon({ className = "w-4 h-4 text-emerald-400" }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+    </svg>
+  )
+}
+
+function InstagramBrandIcon({ className = "w-4 h-4 text-pink-500" }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+    </svg>
+  )
+}
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
@@ -136,6 +176,36 @@ export default function AdminDashboard() {
   const [qrhubApiUrl, setQrhubApiUrl] = useState(localStorage.getItem('qrhub_api_url') || 'https://api.qrhub.com/v1')
   const [qrhubSaved, setQrhubSaved] = useState(false)
 
+  // ── NEW: Single & 3-in-1 QR Creation Modal State (Requirements 1 & 2) ──
+  const [createQrModalOpen, setCreateQrModalOpen] = useState(false)
+  const [qrModalTab, setQrModalTab] = useState('google_review') // '3in1' | 'google_review' | 'instagram' | 'whatsapp'
+  const [qrModalMode, setQrModalMode] = useState('single') // 'single' | 'bulk'
+  const [qrModalBizName, setQrModalBizName] = useState('')
+  const [qrModalDestUrl, setQrModalDestUrl] = useState('')
+  const [qrModalWhatsApp, setQrModalWhatsApp] = useState('')
+  const [qrModalWaMsg, setQrModalWaMsg] = useState('')
+  const [qrModalCustomId, setQrModalCustomId] = useState('')
+  const [qrModalBulkQty, setQrModalBulkQty] = useState(10)
+  const [qrModalSaving, setQrModalSaving] = useState(false)
+  const [createdCardResult, setCreatedCardResult] = useState(null)
+
+  // ── NEW: Edit Destination Modal State (Requirement 4) ──
+  const [editDestModalCard, setEditDestModalCard] = useState(null)
+  const [editDestType, setEditDestType] = useState('google_review')
+  const [editDestBizName, setEditDestBizName] = useState('')
+  const [editDestUrl, setEditDestUrl] = useState('')
+  const [editDestWhatsApp, setEditDestWhatsApp] = useState('')
+  const [editDestWaMsg, setEditDestWaMsg] = useState('')
+  const [editDestStatus, setEditDestStatus] = useState('active')
+  const [editDestSaving, setEditDestSaving] = useState(false)
+
+  // ── NEW: QR Type Filters ──
+  const [cardQrTypeFilter, setCardQrTypeFilter] = useState('all') // 'all' | '3in1' | 'google_review' | 'instagram' | 'whatsapp'
+  const [qrHubTypeFilter, setQrHubTypeFilter] = useState('all')
+
+  // ── NEW: Bulk ZIP Options Modal ──
+  const [zipModalOpen, setZipModalOpen] = useState(false)
+
   const showToast = (msg) => {
     setToastMsg(msg)
     setTimeout(() => setToastMsg(''), 4000)
@@ -189,10 +259,17 @@ export default function AdminDashboard() {
   // Overview Metrics (Never hardcoded!)
   const metrics = useMemo(() => {
     const totalCards = cards.length
-    const availableCards = cards.filter((c) => c.status === 'available' || !c.business_id).length
-    const assignedCards = cards.filter((c) => c.status === 'assigned' || c.status === 'linked' || c.status === 'active').length
+    const availableCards = cards.filter((c) => c.status === 'available' || (!c.business_id && !c.destination_url)).length
+    const assignedCards = cards.filter((c) => c.status === 'assigned' || c.status === 'linked' || c.status === 'active' || !!c.destination_url).length
     const totalBusinesses = businesses.length
     const linkedCards = cards.filter((c) => c.status === 'linked').length
+
+    // QR Type Breakdown (Requirement 1 & 4)
+    const total3in1 = cards.filter((c) => (c.card_type || '3in1') === '3in1').length
+    const totalGoogleReview = cards.filter((c) => c.card_type === 'google_review').length
+    const totalInstagram = cards.filter((c) => c.card_type === 'instagram').length
+    const totalWhatsApp = cards.filter((c) => c.card_type === 'whatsapp').length
+    const totalSingleQr = totalGoogleReview + totalInstagram + totalWhatsApp
 
     // NFC Programming Metrics
     const notProgrammed = cards.filter((c) => !c.nfc_status || c.nfc_status === 'not_programmed').length
@@ -206,6 +283,11 @@ export default function AdminDashboard() {
       assignedCards,
       totalBusinesses,
       linkedCards,
+      total3in1,
+      totalGoogleReview,
+      totalInstagram,
+      totalWhatsApp,
+      totalSingleQr,
       notProgrammed,
       programmed,
       tested,
@@ -221,17 +303,26 @@ export default function AdminDashboard() {
         !q ||
         String(c.card_id).toLowerCase().includes(q) ||
         (c.business_name && c.business_name.toLowerCase().includes(q)) ||
+        (c.destination_url && c.destination_url.toLowerCase().includes(q)) ||
+        (c.permanent_url && c.permanent_url.toLowerCase().includes(q)) ||
+        (c.whatsapp_number && c.whatsapp_number.toLowerCase().includes(q)) ||
         (c.business_id && String(c.business_id).toLowerCase().includes(q))
 
       if (!matchesSearch) return false
 
-      if (cardFilter === 'available') return c.status === 'available' || !c.business_id
+      // Filter by QR type
+      if (cardQrTypeFilter && cardQrTypeFilter !== 'all') {
+        const ct = c.card_type || '3in1'
+        if (ct !== cardQrTypeFilter) return false
+      }
+
+      if (cardFilter === 'available') return c.status === 'available' || (!c.business_id && !c.destination_url)
       if (cardFilter === 'assigned') return c.status === 'assigned'
       if (cardFilter === 'linked') return c.status === 'linked'
-      if (cardFilter === 'active') return c.status === 'active'
+      if (cardFilter === 'active') return c.status === 'active' || !!c.destination_url
       return true
     })
-  }, [cards, cardSearch, cardFilter])
+  }, [cards, cardSearch, cardFilter, cardQrTypeFilter])
 
   // Paginated Cards for "All NFC Cards" tab
   const totalFilteredCards = filteredCards.length
@@ -340,6 +431,125 @@ export default function AdminDashboard() {
     } finally {
       setBulkCreating(false)
       setBulkProgress(0)
+    }
+  }
+
+  // ── ACTION: Create QR Card (Single & Bulk - Requirements 1 & 2) ──
+  const handleCreateQrCardSubmit = async (e) => {
+    e.preventDefault()
+    setQrModalSaving(true)
+    try {
+      if (qrModalMode === 'bulk') {
+        const qty = parseInt(qrModalBulkQty, 10) || 10
+        let newCards
+        if (qrModalTab === '3in1') {
+          newCards = await bulkCreateCards(qty, DEFAULT_BASE_URL)
+        } else {
+          newCards = await bulkCreateSingleQrCards({
+            quantity: qty,
+            type: qrModalTab,
+            businessName: qrModalBizName,
+            destinationUrl: qrModalDestUrl,
+            whatsappNumber: qrModalWhatsApp,
+            whatsappMessage: qrModalWaMsg,
+            baseUrl: DEFAULT_BASE_URL,
+          })
+        }
+        await reloadData()
+        showToast(`Successfully generated ${newCards.length} dynamic QR cards!`)
+        setCreateQrModalOpen(false)
+        resetQrCreateForm()
+      } else {
+        // Single Card creation
+        let newCard
+        if (qrModalTab === '3in1') {
+          newCard = await createCard(qrModalCustomId || null, DEFAULT_BASE_URL)
+        } else {
+          newCard = await createSingleQrCard({
+            type: qrModalTab,
+            businessName: qrModalBizName,
+            destinationUrl: qrModalDestUrl,
+            whatsappNumber: qrModalWhatsApp,
+            whatsappMessage: qrModalWaMsg,
+            customCardId: qrModalCustomId || null,
+            baseUrl: DEFAULT_BASE_URL,
+          })
+        }
+        await reloadData()
+        setCreatedCardResult(newCard)
+        showToast(`Card ${newCard.card_id} created successfully!`)
+      }
+    } catch (err) {
+      alert(`Error creating QR card: ${err.message}`)
+    } finally {
+      setQrModalSaving(false)
+    }
+  }
+
+  const resetQrCreateForm = () => {
+    setQrModalBizName('')
+    setQrModalDestUrl('')
+    setQrModalWhatsApp('')
+    setQrModalWaMsg('')
+    setQrModalCustomId('')
+    setQrModalBulkQty(10)
+    setCreatedCardResult(null)
+  }
+
+  // ── ACTION: Open Destination Editor (Requirement 4) ──
+  const handleOpenEditDestination = (card) => {
+    setEditDestModalCard(card)
+    setEditDestType(card.card_type || 'google_review')
+    setEditDestBizName(card.business_name || (card.business ? card.business.name : ''))
+    setEditDestUrl(card.destination_url || '')
+    setEditDestWhatsApp(card.whatsapp_number || '')
+    setEditDestWaMsg(card.whatsapp_message || '')
+    setEditDestStatus(card.status || 'active')
+  }
+
+  // ── ACTION: Save Destination Changes (Requirement 4: URL remains unchanged) ──
+  const handleSaveDestinationChanges = async (e) => {
+    e.preventDefault()
+    if (!editDestModalCard) return
+    setEditDestSaving(true)
+    try {
+      await updateSingleQrCard(editDestModalCard.card_id, {
+        card_type: editDestType,
+        business_name: editDestBizName,
+        destination_url: editDestUrl,
+        whatsapp_number: editDestWhatsApp,
+        whatsapp_message: editDestWaMsg,
+        status: editDestStatus,
+      })
+      await reloadData()
+      showToast(`Destination for Card ${editDestModalCard.card_id} updated! Printed QR code remains 100% functional.`)
+      setEditDestModalCard(null)
+    } catch (err) {
+      alert(`Error updating destination: ${err.message}`)
+    } finally {
+      setEditDestSaving(false)
+    }
+  }
+
+  // ── ACTION: Bulk Download with Format Choices (PNG, SVG, Bundle) ──
+  const handleDownloadZipWithOptions = async (format = 'bundle') => {
+    try {
+      setZipProgress({ current: 0, total: cards.length, percent: 1, message: 'Starting export...' })
+      await downloadAllCardsZip(
+        cards,
+        DEFAULT_BASE_URL,
+        {
+          includePng: format === 'png' || format === 'bundle',
+          includeSvg: format === 'svg' || format === 'bundle',
+        },
+        setZipProgress
+      )
+      showToast('QR Codes ZIP downloaded successfully!')
+      setZipModalOpen(false)
+    } catch (err) {
+      alert(`Failed to download ZIP: ${err.message}`)
+    } finally {
+      setZipProgress(null)
     }
   }
 
@@ -874,6 +1084,41 @@ export default function AdminDashboard() {
               ════════════════════════════════════════════════════════════ */}
           {activeTab === 'cards' && (
             <div className="space-y-4">
+              {/* QR Type Filter Pills */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                <span className="text-[11px] text-gray-500 font-mono uppercase tracking-wider shrink-0">QR Type:</span>
+                {[
+                  { id: 'all', label: 'All Types', count: metrics.totalCards },
+                  { id: '3in1', label: '3-in-1 Cards', count: metrics.total3in1 },
+                  { id: 'google_review', label: 'Google Review', count: metrics.totalGoogleReview, icon: GoogleBrandIcon },
+                  { id: 'instagram', label: 'Instagram', count: metrics.totalInstagram, icon: InstagramBrandIcon },
+                  { id: 'whatsapp', label: 'WhatsApp', count: metrics.totalWhatsApp, icon: WhatsAppBrandIcon },
+                ].map((t) => {
+                  const Icon = t.icon
+                  const active = cardQrTypeFilter === t.id
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => {
+                        setCardQrTypeFilter(t.id)
+                        setCardPage(1)
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap border ${
+                        active
+                          ? 'bg-[#a3e635] text-black border-[#a3e635] font-extrabold shadow-sm'
+                          : 'bg-[#0e1017] text-gray-400 border-white/10 hover:text-white hover:border-white/20'
+                      }`}
+                    >
+                      {Icon && <Icon className="w-3.5 h-3.5" />}
+                      <span>{t.label}</span>
+                      <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${active ? 'bg-black/20 text-black' : 'bg-white/10 text-gray-300'}`}>
+                        {t.count}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+
               {/* Header Action & Filter Bar */}
               <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between bg-[#0e1017] p-4 rounded-2xl border border-white/10">
                 {/* Search & Status Filter */}
@@ -887,7 +1132,7 @@ export default function AdminDashboard() {
                         setCardSearch(e.target.value)
                         setCardPage(1)
                       }}
-                      placeholder="Search by ID or business..."
+                      placeholder="Search by ID, business, URL..."
                       className="w-full bg-[#161822] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#a3e635] outline-none"
                     />
                   </div>
@@ -913,29 +1158,31 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                {/* Card Creation Buttons */}
+                {/* Card Creation & Export Buttons */}
                 <div className="flex items-center gap-2 shrink-0">
                   <button
-                    onClick={handleCreateSingleCard}
-                    disabled={creatingSingleCard}
-                    className="bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold px-3.5 py-2 rounded-xl text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-md disabled:opacity-50"
+                    onClick={() => {
+                      resetQrCreateForm()
+                      setCreateQrModalOpen(true)
+                    }}
+                    className="bg-gradient-to-r from-[#a3e635] to-emerald-400 hover:opacity-95 text-black font-black px-3.5 py-2 rounded-xl text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
                   >
-                    <PlusCircle size={15} />
-                    <span>+ Create {nextId}</span>
+                    <Sparkles size={14} />
+                    <span>+ Create QR Card</span>
                   </button>
 
                   <button
                     onClick={() => setBulkModalOpen(true)}
                     className="bg-indigo-500 hover:bg-indigo-400 text-white font-bold px-3.5 py-2 rounded-xl text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
                   >
-                    <Layers size={15} />
-                    <span>Bulk Generate</span>
+                    <Layers size={14} />
+                    <span>Bulk Cards</span>
                   </button>
 
                   <button
-                    onClick={() => downloadAllCardsZip(filteredCards, DEFAULT_BASE_URL, setZipProgress)}
+                    onClick={() => handleDownloadZipWithOptions('bundle')}
                     className="bg-white/10 hover:bg-white/15 text-white font-bold p-2 rounded-xl text-xs border border-white/10 transition-colors"
-                    title="Download ZIP for these cards"
+                    title="Download ZIP (PNG + SVG Bundle)"
                   >
                     <Archive size={15} />
                   </button>
@@ -957,10 +1204,10 @@ export default function AdminDashboard() {
                     <thead className="bg-[#12141d] border-b border-white/10 text-gray-400 uppercase font-mono text-[10px] tracking-wider">
                       <tr>
                         <th className="py-3.5 px-4">ID</th>
+                        <th className="py-3.5 px-4">QR Type</th>
                         <th className="py-3.5 px-4">Profile Status</th>
                         <th className="py-3.5 px-4">NFC Programming</th>
-                        <th className="py-3.5 px-4">Chip</th>
-                        <th className="py-3.5 px-4">Linked Business</th>
+                        <th className="py-3.5 px-4">Destination / Business</th>
                         <th className="py-3.5 px-4">Permanent NFC / QR URL</th>
                         <th className="py-3.5 px-4 text-right">Actions</th>
                       </tr>
@@ -974,13 +1221,42 @@ export default function AdminDashboard() {
                         </tr>
                       ) : (
                         paginatedCards.map((c) => {
-                          const isAssigned = Boolean(c.business_id)
+                          const isAssigned = Boolean(c.business_id || c.destination_url)
                           const nfcStat = c.nfc_status || 'not_programmed'
+                          const cType = c.card_type || '3in1'
                           return (
                             <tr key={c.card_id} className="hover:bg-white/[0.02] transition-colors">
                               {/* Card ID */}
                               <td className="py-3.5 px-4 font-mono font-black text-white text-sm">
                                 {c.card_id}
+                              </td>
+
+                              {/* QR Type Badge */}
+                              <td className="py-3.5 px-4">
+                                {cType === 'google_review' && (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/30">
+                                    <GoogleBrandIcon className="w-3.5 h-3.5" />
+                                    <span>Google Review</span>
+                                  </span>
+                                )}
+                                {cType === 'instagram' && (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-pink-500/10 text-pink-400 border border-pink-500/30">
+                                    <InstagramBrandIcon className="w-3.5 h-3.5" />
+                                    <span>Instagram</span>
+                                  </span>
+                                )}
+                                {cType === 'whatsapp' && (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                                    <WhatsAppBrandIcon className="w-3.5 h-3.5" />
+                                    <span>WhatsApp</span>
+                                  </span>
+                                )}
+                                {cType === '3in1' && (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/30">
+                                    <Layers size={12} />
+                                    <span>3-in-1 Card</span>
+                                  </span>
+                                )}
                               </td>
 
                               {/* Profile Status Badge */}
@@ -1003,7 +1279,7 @@ export default function AdminDashboard() {
                                         : 'bg-[#a3e635]'
                                     }`}
                                   />
-                                  {c.status || (isAssigned ? 'Assigned' : 'Available')}
+                                  {c.status || (isAssigned ? 'Active' : 'Available')}
                                 </span>
                               </td>
 
@@ -1040,14 +1316,28 @@ export default function AdminDashboard() {
                                 </button>
                               </td>
 
-                              {/* Chip */}
-                              <td className="py-3.5 px-4 font-mono text-gray-400 text-[11px]">
-                                NTAG213
-                              </td>
-
-                              {/* Linked Business */}
+                              {/* Target / Destination */}
                               <td className="py-3.5 px-4">
-                                {isAssigned ? (
+                                {cType !== '3in1' ? (
+                                  <div>
+                                    <div className="font-bold text-white text-xs">
+                                      {c.business_name || 'Direct QR Card'}
+                                    </div>
+                                    {c.destination_url ? (
+                                      <a
+                                        href={c.destination_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-[11px] text-[#a3e635] hover:underline font-mono truncate max-w-[200px] block"
+                                        title={c.destination_url}
+                                      >
+                                        {c.destination_url}
+                                      </a>
+                                    ) : (
+                                      <span className="text-gray-500 italic text-[11px]">No destination set</span>
+                                    )}
+                                  </div>
+                                ) : isAssigned ? (
                                   <div>
                                     <div className="font-bold text-white text-xs">
                                       {c.business_name || 'Business'}
@@ -1066,15 +1356,15 @@ export default function AdminDashboard() {
                               {/* Permanent NFC / QR URL */}
                               <td className="py-3.5 px-4 font-mono text-[11px]">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-gray-300 truncate max-w-[180px] sm:max-w-[220px]">
+                                  <span className="text-gray-300 truncate max-w-[170px] sm:max-w-[200px]">
                                     {c.permanent_url}
                                   </span>
                                   <button
-                                    onClick={() => handleCopyUrl(c.permanent_url, c.card_id)}
+                                    onClick={() => handleCopyUrl(c.permanent_url, `nfc-${c.card_id}`)}
                                     className="text-gray-500 hover:text-[#a3e635] transition-colors cursor-pointer shrink-0"
-                                    title="Copy NFC URL"
+                                    title="Copy Permanent NFC URL"
                                   >
-                                    {copiedUrl === c.card_id ? (
+                                    {copiedUrl === `nfc-${c.card_id}` ? (
                                       <CheckCircle2 size={13} className="text-[#a3e635]" />
                                     ) : (
                                       <Copy size={13} />
@@ -1086,6 +1376,43 @@ export default function AdminDashboard() {
                               {/* Actions */}
                               <td className="py-3.5 px-4 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
+                                  {/* Download PNG */}
+                                  <button
+                                    onClick={() => downloadSingleQRPNG(c.permanent_url, c.card_id)}
+                                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors cursor-pointer"
+                                    title={`Download ${c.card_id}.png`}
+                                  >
+                                    <Download size={14} />
+                                  </button>
+
+                                  {/* Download SVG */}
+                                  <button
+                                    onClick={() => downloadSingleQRSVG(c.permanent_url, c.card_id)}
+                                    className="p-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 transition-colors cursor-pointer font-mono text-[10px] font-bold px-2"
+                                    title={`Download ${c.card_id}.svg (Vector)`}
+                                  >
+                                    SVG
+                                  </button>
+
+                                  {/* Edit Destination */}
+                                  <button
+                                    onClick={() => handleOpenEditDestination(c)}
+                                    className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 transition-colors cursor-pointer"
+                                    title="Edit Destination Target"
+                                  >
+                                    <Edit size={14} />
+                                  </button>
+
+                                  {/* Test Direct Dynamic QR Link */}
+                                  <Link
+                                    to={`/p/${c.card_id}`}
+                                    target="_blank"
+                                    className="p-1.5 rounded-lg bg-lime-400/10 hover:bg-lime-400/20 text-[#a3e635] transition-colors"
+                                    title="Test Dynamic QR / NFC Tap"
+                                  >
+                                    <ExternalLink size={14} />
+                                  </Link>
+
                                   {/* Quick NFC Programmer */}
                                   <button
                                     onClick={() => {
@@ -1098,60 +1425,14 @@ export default function AdminDashboard() {
                                     <Radio size={14} />
                                   </button>
 
-                                  {/* QR Modal */}
+                                  {/* Delete Card Record */}
                                   <button
-                                    onClick={() => handleShowQrModal(c)}
-                                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors cursor-pointer"
-                                    title="View QR Code"
+                                    onClick={() => handleDeleteCard(c.card_id)}
+                                    className="p-1.5 rounded-lg bg-white/5 hover:bg-rose-500/10 text-gray-400 hover:text-rose-400 transition-colors cursor-pointer"
+                                    title="Delete Card Record"
                                   >
-                                    <QrCode size={14} />
+                                    <Trash2 size={13} />
                                   </button>
-
-                                  {/* Download PNG */}
-                                  <button
-                                    onClick={() => downloadSingleQRPNG(c.permanent_url, c.card_id)}
-                                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors cursor-pointer"
-                                    title="Download PNG QR"
-                                  >
-                                    <Download size={14} />
-                                  </button>
-
-                                  {/* Open Public Page */}
-                                  <Link
-                                    to={`/c/${c.card_id}`}
-                                    target="_blank"
-                                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors"
-                                    title="Open Public Card"
-                                  >
-                                    <ExternalLink size={14} />
-                                  </Link>
-
-                                  {/* Setup / Unlink / Delete */}
-                                  {isAssigned ? (
-                                    <button
-                                      onClick={() => handleUnlink(c.card_id)}
-                                      className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors cursor-pointer"
-                                      title="Unlink Card"
-                                    >
-                                      <Trash2 size={14} />
-                                    </button>
-                                  ) : (
-                                    <>
-                                      <Link
-                                        to={`/setup/${c.card_id}`}
-                                        className="px-2 py-1 rounded-lg bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold text-[10px] uppercase tracking-wider transition-all"
-                                      >
-                                        Setup
-                                      </Link>
-                                      <button
-                                        onClick={() => handleDeleteCard(c.card_id)}
-                                        className="p-1.5 rounded-lg bg-white/5 hover:bg-rose-500/10 text-gray-400 hover:text-rose-400 transition-colors cursor-pointer"
-                                        title="Delete Card Record"
-                                      >
-                                        <Trash2 size={13} />
-                                      </button>
-                                    </>
-                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -2335,7 +2616,7 @@ export default function AdminDashboard() {
           )}
 
           {/* ════════════════════════════════════════════════════════════
-              TAB 7: QR CODE MANAGEMENT & QR HUB
+              TAB 7: QR CODE MANAGEMENT & DYNAMIC QR HUB
               ════════════════════════════════════════════════════════════ */}
           {activeTab === 'qr-hub' && (
             <div className="space-y-8">
@@ -2343,54 +2624,290 @@ export default function AdminDashboard() {
               <div className="p-6 rounded-3xl bg-[#0e1017] border border-white/10">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
                   <div>
-                    <h3 className="text-xl font-black text-white">
-                      Card Manufacturing &amp; QR Export
+                    <span className="text-xs font-mono uppercase tracking-widest text-[#a3e635] bg-[#a3e635]/10 px-2.5 py-0.5 rounded border border-[#a3e635]/20 font-bold">
+                      Dynamic QR Suite
+                    </span>
+                    <h3 className="text-2xl font-black text-white mt-1">
+                      QR Code Management &amp; Manufacturing Export
                     </h3>
                     <p className="text-xs text-gray-400 mt-1">
-                      Download individual high-res PNGs or batch export QR codes and programming CSV for card production.
+                      Manage 3-in-1 cards and Single QR cards (Google Review, Instagram, WhatsApp). Export in PNG and SVG vector formats.
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-3 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2.5 shrink-0">
                     <button
-                      onClick={() => downloadAllCardsZip(cards, DEFAULT_BASE_URL, setZipProgress)}
-                      className="bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold px-4 py-2.5 rounded-xl text-xs transition-all flex items-center gap-2 cursor-pointer shadow-md"
+                      onClick={() => {
+                        resetQrCreateForm()
+                        setCreateQrModalOpen(true)
+                      }}
+                      className="bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold px-4 py-2.5 rounded-xl text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
                     >
-                      <Archive size={15} />
-                      <span>
-                        {zipProgress
-                          ? `Packaging (${zipProgress.current}/${zipProgress.total})...`
-                          : `Download All ${cards.length} QRs (ZIP)`}
-                      </span>
+                      <Sparkles size={14} />
+                      <span>+ Create QR Card</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleDownloadZipWithOptions('png')}
+                      className="bg-white/10 hover:bg-white/15 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs transition-all flex items-center gap-1.5 cursor-pointer border border-white/10"
+                      title="Download all PNGs in a ZIP"
+                    >
+                      <Download size={14} />
+                      <span>PNGs (.zip)</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleDownloadZipWithOptions('svg')}
+                      className="bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 font-bold px-3.5 py-2.5 rounded-xl text-xs transition-all flex items-center gap-1.5 cursor-pointer border border-indigo-500/30"
+                      title="Download all SVGs in a ZIP"
+                    >
+                      <Download size={14} />
+                      <span>SVGs (.zip)</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleDownloadZipWithOptions('bundle')}
+                      className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:opacity-95 text-white font-black px-4 py-2.5 rounded-xl text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
+                      title="Download complete PNG + SVG + Manifest bundle"
+                    >
+                      <Archive size={14} />
+                      <span>Full Bundle (.zip)</span>
                     </button>
 
                     <button
                       onClick={() => downloadCSVFile(cards, DEFAULT_BASE_URL)}
-                      className="bg-white/10 hover:bg-white/15 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition-all flex items-center gap-2 cursor-pointer border border-white/10"
+                      className="bg-white/10 hover:bg-white/15 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs transition-all flex items-center gap-1.5 cursor-pointer border border-white/10"
                     >
-                      <FileSpreadsheet size={15} />
-                      <span>Export Manifest CSV</span>
+                      <FileSpreadsheet size={14} />
+                      <span>CSV Manifest</span>
                     </button>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                {/* 4 QR Type Stat Pills */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs mb-6">
                   <div className="p-4 rounded-2xl bg-[#141620] border border-white/10">
-                    <span className="text-gray-400">Total Cards in System:</span>
-                    <div className="text-2xl font-black text-white font-mono mt-1">
-                      {cards.length} Cards
+                    <div className="flex items-center justify-between text-gray-400 mb-1">
+                      <span>3-in-1 Cards</span>
+                      <Layers size={14} className="text-indigo-400" />
                     </div>
-                    <span className="text-[10px] text-gray-500">Fully expandable</span>
+                    <div className="text-2xl font-black text-indigo-400 font-mono">
+                      {metrics.total3in1}
+                    </div>
+                    <span className="text-[10px] text-gray-500">Full Business Profile</span>
                   </div>
+
                   <div className="p-4 rounded-2xl bg-[#141620] border border-white/10">
-                    <span className="text-gray-400">NFC Chip Target:</span>
-                    <div className="text-2xl font-black text-[#a3e635] font-mono mt-1">NTAG213</div>
-                    <span className="text-[10px] text-gray-500">144 Bytes standard tag</span>
+                    <div className="flex items-center justify-between text-gray-400 mb-1">
+                      <span>Google Review QR</span>
+                      <GoogleBrandIcon className="w-4 h-4" />
+                    </div>
+                    <div className="text-2xl font-black text-blue-400 font-mono">
+                      {metrics.totalGoogleReview}
+                    </div>
+                    <span className="text-[10px] text-gray-500">1-Tap Direct Review</span>
                   </div>
+
                   <div className="p-4 rounded-2xl bg-[#141620] border border-white/10">
-                    <span className="text-gray-400">QR Resolution:</span>
-                    <div className="text-2xl font-black text-indigo-400 font-mono mt-1">640 &times; 740 px</div>
-                    <span className="text-[10px] text-gray-500">High-Res PNG with numeric label</span>
+                    <div className="flex items-center justify-between text-gray-400 mb-1">
+                      <span>Instagram QR</span>
+                      <InstagramBrandIcon className="w-4 h-4" />
+                    </div>
+                    <div className="text-2xl font-black text-pink-400 font-mono">
+                      {metrics.totalInstagram}
+                    </div>
+                    <span className="text-[10px] text-gray-500">Direct Profile Follow</span>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-[#141620] border border-white/10">
+                    <div className="flex items-center justify-between text-gray-400 mb-1">
+                      <span>WhatsApp QR</span>
+                      <WhatsAppBrandIcon className="w-4 h-4" />
+                    </div>
+                    <div className="text-2xl font-black text-emerald-400 font-mono">
+                      {metrics.totalWhatsApp}
+                    </div>
+                    <span className="text-[10px] text-gray-500">Direct Chat Starter</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* QR Management Table with Type Filter */}
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-[#0e1017] p-4 rounded-2xl border border-white/10">
+                  <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
+                    <span className="text-[11px] text-gray-500 font-mono uppercase tracking-wider shrink-0">Filter:</span>
+                    {[
+                      { id: 'all', label: 'All Types', count: metrics.totalCards },
+                      { id: '3in1', label: '3-in-1', count: metrics.total3in1 },
+                      { id: 'google_review', label: 'Google Review', count: metrics.totalGoogleReview, icon: GoogleBrandIcon },
+                      { id: 'instagram', label: 'Instagram', count: metrics.totalInstagram, icon: InstagramBrandIcon },
+                      { id: 'whatsapp', label: 'WhatsApp', count: metrics.totalWhatsApp, icon: WhatsAppBrandIcon },
+                    ].map((t) => {
+                      const Icon = t.icon
+                      const active = qrHubTypeFilter === t.id
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => setQrHubTypeFilter(t.id)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap border ${
+                            active
+                              ? 'bg-[#a3e635] text-black border-[#a3e635] font-extrabold shadow-sm'
+                              : 'bg-[#141620] text-gray-400 border-white/10 hover:text-white'
+                          }`}
+                        >
+                          {Icon && <Icon className="w-3.5 h-3.5" />}
+                          <span>{t.label}</span>
+                          <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${active ? 'bg-black/20 text-black' : 'bg-white/10 text-gray-300'}`}>
+                            {t.count}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <span className="text-xs text-gray-500 font-mono">
+                    Permanent URL is invariant. Destinations update dynamically.
+                  </span>
+                </div>
+
+                <div className="bg-[#0e1017] border border-white/10 rounded-3xl overflow-hidden shadow-xl">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-[#12141d] border-b border-white/10 text-gray-400 uppercase font-mono text-[10px] tracking-wider">
+                        <tr>
+                          <th className="py-3.5 px-4">ID</th>
+                          <th className="py-3.5 px-4">Type</th>
+                          <th className="py-3.5 px-4">Business / Profile</th>
+                          <th className="py-3.5 px-4">Dynamic Target Destination</th>
+                          <th className="py-3.5 px-4">Permanent QR / NFC URL</th>
+                          <th className="py-3.5 px-4 text-right">Download &amp; Edit</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {cards
+                          .filter((c) => qrHubTypeFilter === 'all' || (c.card_type || '3in1') === qrHubTypeFilter)
+                          .map((c) => {
+                            const cType = c.card_type || '3in1'
+                            return (
+                              <tr key={c.card_id} className="hover:bg-white/[0.02] transition-colors">
+                                <td className="py-3.5 px-4 font-mono font-black text-white text-sm">
+                                  {c.card_id}
+                                </td>
+
+                                <td className="py-3.5 px-4">
+                                  {cType === 'google_review' && (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/30">
+                                      <GoogleBrandIcon className="w-3.5 h-3.5" />
+                                      <span>Google Review</span>
+                                    </span>
+                                  )}
+                                  {cType === 'instagram' && (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-pink-500/10 text-pink-400 border border-pink-500/30">
+                                      <InstagramBrandIcon className="w-3.5 h-3.5" />
+                                      <span>Instagram</span>
+                                    </span>
+                                  )}
+                                  {cType === 'whatsapp' && (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                                      <WhatsAppBrandIcon className="w-3.5 h-3.5" />
+                                      <span>WhatsApp</span>
+                                    </span>
+                                  )}
+                                  {cType === '3in1' && (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/30">
+                                      <Layers size={12} />
+                                      <span>3-in-1 Card</span>
+                                    </span>
+                                  )}
+                                </td>
+
+                                <td className="py-3.5 px-4">
+                                  <div className="font-bold text-white text-xs">
+                                    {c.business_name || (c.business ? c.business.name : 'Unassigned')}
+                                  </div>
+                                </td>
+
+                                <td className="py-3.5 px-4">
+                                  {c.destination_url ? (
+                                    <a
+                                      href={c.destination_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[11px] text-[#a3e635] hover:underline font-mono truncate max-w-[220px] block"
+                                      title={c.destination_url}
+                                    >
+                                      {c.destination_url}
+                                    </a>
+                                  ) : cType === '3in1' && c.business ? (
+                                    <span className="text-gray-400 text-[11px]">3-in-1 Landing Profile</span>
+                                  ) : (
+                                    <span className="text-gray-500 italic text-[11px]">No target set</span>
+                                  )}
+                                </td>
+
+                                <td className="py-3.5 px-4 font-mono text-[11px]">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-gray-300 truncate max-w-[180px]">
+                                      {c.permanent_url}
+                                    </span>
+                                    <button
+                                      onClick={() => handleCopyUrl(c.permanent_url, `qrhub-${c.card_id}`)}
+                                      className="text-gray-500 hover:text-[#a3e635] transition-colors cursor-pointer shrink-0"
+                                      title="Copy Permanent URL"
+                                    >
+                                      {copiedUrl === `qrhub-${c.card_id}` ? (
+                                        <CheckCircle2 size={13} className="text-[#a3e635]" />
+                                      ) : (
+                                        <Copy size={13} />
+                                      )}
+                                    </button>
+                                  </div>
+                                </td>
+
+                                <td className="py-3.5 px-4 text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      onClick={() => downloadSingleQRPNG(c.permanent_url, c.card_id)}
+                                      className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white font-mono text-[11px] font-bold transition-colors cursor-pointer flex items-center gap-1"
+                                      title={`Download ${c.card_id}.png`}
+                                    >
+                                      <Download size={12} />
+                                      <span>PNG</span>
+                                    </button>
+
+                                    <button
+                                      onClick={() => downloadSingleQRSVG(c.permanent_url, c.card_id)}
+                                      className="px-2.5 py-1 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 font-mono text-[11px] font-bold transition-colors cursor-pointer flex items-center gap-1"
+                                      title={`Download ${c.card_id}.svg`}
+                                    >
+                                      <Download size={12} />
+                                      <span>SVG</span>
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleOpenEditDestination(c)}
+                                      className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 transition-colors cursor-pointer"
+                                      title="Edit Destination Target"
+                                    >
+                                      <Edit size={14} />
+                                    </button>
+
+                                    <Link
+                                      to={`/p/${c.card_id}`}
+                                      target="_blank"
+                                      className="p-1.5 rounded-lg bg-lime-400/10 hover:bg-lime-400/20 text-[#a3e635] transition-colors"
+                                      title="Test Dynamic QR / Scan"
+                                    >
+                                      <ExternalLink size={14} />
+                                    </Link>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
@@ -2837,7 +3354,14 @@ export default function AdminDashboard() {
                 className="flex-1 bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Download size={14} />
-                <span>Download {qrModalCard.card_id}.png</span>
+                <span>PNG ({qrModalCard.card_id}.png)</span>
+              </button>
+              <button
+                onClick={() => downloadSingleQRSVG(qrModalCard.permanent_url, qrModalCard.card_id)}
+                className="flex-1 bg-indigo-500 hover:bg-indigo-400 text-white font-extrabold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Download size={14} />
+                <span>SVG ({qrModalCard.card_id}.svg)</span>
               </button>
               <button
                 onClick={() => setQrModalCard(null)}
@@ -2846,6 +3370,588 @@ export default function AdminDashboard() {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: CREATE DYNAMIC QR CARD (Requirements 1 & 2: 3-in-1, Google, Instagram, WhatsApp) ── */}
+      {createQrModalOpen && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-[#0e1017] border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#a3e635] to-emerald-400 text-black flex items-center justify-center font-black shadow-lg">
+                  <Sparkles size={18} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">Create Dynamic QR Card</h3>
+                  <p className="text-[11px] text-gray-400 font-mono">Select single or 3-in-1 QR format</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setCreateQrModalOpen(false)
+                  resetQrCreateForm()
+                }}
+                className="text-gray-400 hover:text-white p-1 rounded-lg text-xl"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Created Single Card Success Result View */}
+            {createdCardResult ? (
+              <div className="space-y-5 text-center py-2">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono font-bold uppercase">
+                  <CheckCircle2 size={13} />
+                  <span>Card {createdCardResult.card_id} Ready &amp; Active</span>
+                </div>
+
+                <div className="p-4 bg-white rounded-2xl inline-block shadow-inner mx-auto">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(createdCardResult.permanent_url)}`}
+                    alt="QR Code"
+                    className="w-48 h-48 mx-auto object-contain"
+                  />
+                </div>
+
+                <div className="p-4 rounded-2xl bg-[#141620] border border-white/10 space-y-2 text-left">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-400">Card ID:</span>
+                    <span className="font-mono text-white font-bold">#{createdCardResult.card_id}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-400">Permanent URL:</span>
+                    <span className="font-mono text-[#a3e635] truncate max-w-[200px]">{createdCardResult.permanent_url}</span>
+                  </div>
+                  {createdCardResult.destination_url && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-400">Target Destination:</span>
+                      <a
+                        href={createdCardResult.destination_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono text-indigo-400 hover:underline truncate max-w-[200px]"
+                      >
+                        {createdCardResult.destination_url}
+                      </a>
+                    </div>
+                  )}
+                </div>
+
+                {/* Instant Download Options */}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <button
+                    onClick={() => downloadSingleQRPNG(createdCardResult.permanent_url, createdCardResult.card_id)}
+                    className="bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                  >
+                    <Download size={14} />
+                    <span>Download {createdCardResult.card_id}.png</span>
+                  </button>
+
+                  <button
+                    onClick={() => downloadSingleQRSVG(createdCardResult.permanent_url, createdCardResult.card_id)}
+                    className="bg-indigo-500 hover:bg-indigo-400 text-white font-extrabold py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                  >
+                    <Download size={14} />
+                    <span>Download {createdCardResult.card_id}.svg</span>
+                  </button>
+                </div>
+
+                <div className="flex gap-2 text-xs">
+                  <button
+                    onClick={() => handleCopyUrl(createdCardResult.permanent_url, 'created-nfc')}
+                    className="flex-1 bg-white/5 hover:bg-white/10 text-white font-semibold py-2.5 px-3 rounded-xl border border-white/10 flex items-center justify-center gap-1.5"
+                  >
+                    <Copy size={13} />
+                    <span>{copiedUrl === 'created-nfc' ? 'Copied NFC URL!' : 'Copy NFC URL'}</span>
+                  </button>
+
+                  <Link
+                    to={`/p/${createdCardResult.card_id}`}
+                    target="_blank"
+                    className="flex-1 bg-lime-400/10 hover:bg-lime-400/20 text-[#a3e635] font-semibold py-2.5 px-3 rounded-xl border border-lime-400/20 flex items-center justify-center gap-1.5"
+                  >
+                    <ExternalLink size={13} />
+                    <span>Test Scan / Tap</span>
+                  </Link>
+                </div>
+
+                <button
+                  onClick={() => resetQrCreateForm()}
+                  className="w-full text-xs text-gray-400 hover:text-white pt-2 cursor-pointer"
+                >
+                  + Create Another Card
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleCreateQrCardSubmit} className="space-y-5 text-xs">
+                {/* 1. Select QR Type (Requirement 1) */}
+                <div>
+                  <label className="font-semibold text-gray-300 uppercase tracking-wider block mb-2 text-[11px]">
+                    1. Select QR Card Format *
+                  </label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {/* Google Review QR */}
+                    <button
+                      type="button"
+                      onClick={() => setQrModalTab('google_review')}
+                      className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                        qrModalTab === 'google_review'
+                          ? 'bg-blue-500/15 border-blue-400 text-white ring-1 ring-blue-400'
+                          : 'bg-[#141620] border-white/10 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <GoogleBrandIcon className="w-4 h-4" />
+                        <span className="font-bold text-white text-xs">Google Review QR</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 leading-tight">
+                        Direct 1-tap redirect to Google Review page
+                      </p>
+                    </button>
+
+                    {/* Instagram QR */}
+                    <button
+                      type="button"
+                      onClick={() => setQrModalTab('instagram')}
+                      className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                        qrModalTab === 'instagram'
+                          ? 'bg-pink-500/15 border-pink-400 text-white ring-1 ring-pink-400'
+                          : 'bg-[#141620] border-white/10 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <InstagramBrandIcon className="w-4 h-4" />
+                        <span className="font-bold text-white text-xs">Instagram QR</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 leading-tight">
+                        Direct 1-tap redirect to Instagram profile
+                      </p>
+                    </button>
+
+                    {/* WhatsApp QR */}
+                    <button
+                      type="button"
+                      onClick={() => setQrModalTab('whatsapp')}
+                      className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                        qrModalTab === 'whatsapp'
+                          ? 'bg-emerald-500/15 border-emerald-400 text-white ring-1 ring-emerald-400'
+                          : 'bg-[#141620] border-white/10 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <WhatsAppBrandIcon className="w-4 h-4" />
+                        <span className="font-bold text-white text-xs">WhatsApp QR</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 leading-tight">
+                        Direct 1-tap redirect to WhatsApp chat
+                      </p>
+                    </button>
+
+                    {/* 3-in-1 QR Card (Existing) */}
+                    <button
+                      type="button"
+                      onClick={() => setQrModalTab('3in1')}
+                      className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                        qrModalTab === '3in1'
+                          ? 'bg-indigo-500/15 border-indigo-400 text-white ring-1 ring-indigo-400'
+                          : 'bg-[#141620] border-white/10 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <Layers size={15} className="text-indigo-400" />
+                        <span className="font-bold text-white text-xs">3-in-1 QR Card</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 leading-tight">
+                        Full landing page with 3 social buttons
+                      </p>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Generation Mode (Single vs Bulk) */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-semibold text-gray-300 uppercase tracking-wider text-[11px]">
+                      2. Creation Mode
+                    </span>
+                    <div className="flex bg-[#141620] p-0.5 rounded-lg border border-white/10">
+                      <button
+                        type="button"
+                        onClick={() => setQrModalMode('single')}
+                        className={`px-3 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-all ${
+                          qrModalMode === 'single' ? 'bg-[#a3e635] text-black shadow-sm' : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        Single Card
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQrModalMode('bulk')}
+                        className={`px-3 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-all ${
+                          qrModalMode === 'bulk' ? 'bg-indigo-500 text-white shadow-sm' : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        Bulk Batch
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Form Fields tailored to Selected Type */}
+                <div className="space-y-3.5 p-4 rounded-2xl bg-[#141620] border border-white/10">
+                  {/* Common: Business / Profile Name */}
+                  <div>
+                    <label className="text-gray-300 font-semibold block mb-1">
+                      Business or Profile Name {qrModalMode === 'single' ? '*' : '(Optional prefix)'}
+                    </label>
+                    <input
+                      type="text"
+                      value={qrModalBizName}
+                      onChange={(e) => setQrModalBizName(e.target.value)}
+                      placeholder={
+                        qrModalTab === 'instagram'
+                          ? 'e.g. Aura Studio'
+                          : qrModalTab === 'whatsapp'
+                          ? 'e.g. Green Leaf Cafe'
+                          : 'e.g. Elite Dental Clinic'
+                      }
+                      className="w-full bg-[#1b1e2c] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:border-[#a3e635] outline-none"
+                    />
+                  </div>
+
+                  {/* Google Review URL Field */}
+                  {qrModalTab === 'google_review' && (
+                    <div>
+                      <label className="text-gray-300 font-semibold block mb-1">
+                        Google Review URL *
+                      </label>
+                      <input
+                        type="url"
+                        required={qrModalMode === 'single'}
+                        value={qrModalDestUrl}
+                        onChange={(e) => setQrModalDestUrl(e.target.value)}
+                        placeholder="https://g.page/r/example-review or maps.app.goo.gl/..."
+                        className="w-full bg-[#1b1e2c] border border-white/10 rounded-xl px-3.5 py-2.5 text-white font-mono focus:border-blue-400 outline-none"
+                      />
+                      <p className="text-[10px] text-gray-500 mt-1">
+                        Permanent URL: <code className="text-[#a3e635]">/p/{qrModalCustomId || nextId}</code> &bull; Redirects immediately on scan/tap.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Instagram URL Field */}
+                  {qrModalTab === 'instagram' && (
+                    <div>
+                      <label className="text-gray-300 font-semibold block mb-1">
+                        Instagram Profile URL or @Handle *
+                      </label>
+                      <input
+                        type="text"
+                        required={qrModalMode === 'single'}
+                        value={qrModalDestUrl}
+                        onChange={(e) => setQrModalDestUrl(e.target.value)}
+                        placeholder="https://instagram.com/yourhandle or @yourhandle"
+                        className="w-full bg-[#1b1e2c] border border-white/10 rounded-xl px-3.5 py-2.5 text-white font-mono focus:border-pink-400 outline-none"
+                      />
+                      <p className="text-[10px] text-gray-500 mt-1">
+                        Permanent URL: <code className="text-[#a3e635]">/p/{qrModalCustomId || nextId}</code> &bull; Auto-formats to official Instagram URL.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* WhatsApp Fields */}
+                  {qrModalTab === 'whatsapp' && (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-gray-300 font-semibold block mb-1">
+                          WhatsApp Number with Country Code *
+                        </label>
+                        <input
+                          type="tel"
+                          required={qrModalMode === 'single'}
+                          value={qrModalWhatsApp}
+                          onChange={(e) => setQrModalWhatsApp(e.target.value)}
+                          placeholder="+91 98765 43210"
+                          className="w-full bg-[#1b1e2c] border border-white/10 rounded-xl px-3.5 py-2.5 text-white font-mono focus:border-emerald-400 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-gray-300 font-semibold block mb-1">
+                          Prefilled Greeting Message (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={qrModalWaMsg}
+                          onChange={(e) => setQrModalWaMsg(e.target.value)}
+                          placeholder="Hello, I am connecting from your NFC card!"
+                          className="w-full bg-[#1b1e2c] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:border-emerald-400 outline-none"
+                        />
+                      </div>
+                      {qrModalWhatsApp && (
+                        <div className="p-2.5 rounded-xl bg-black/40 border border-emerald-500/20 font-mono text-[11px] text-emerald-400 truncate">
+                          Live Target: {formatWhatsAppChatUrl(qrModalWhatsApp, qrModalWaMsg)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 3-in-1 info notice */}
+                  {qrModalTab === '3in1' && (
+                    <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[11px] leading-relaxed">
+                      Creates a standard 3-in-1 multi-action NFC card. You can assign it to any business profile in the Businesses tab or setup wizard.
+                    </div>
+                  )}
+
+                  {/* Card ID or Bulk Quantity */}
+                  {qrModalMode === 'single' ? (
+                    <div>
+                      <label className="text-gray-400 block mb-1 text-[11px]">
+                        Card ID (Optional, defaults to next available: <span className="font-mono text-[#a3e635]">{nextId}</span>)
+                      </label>
+                      <input
+                        type="text"
+                        value={qrModalCustomId}
+                        onChange={(e) => setQrModalCustomId(e.target.value)}
+                        placeholder={nextId}
+                        className="w-full bg-[#1b1e2c] border border-white/10 rounded-xl px-3.5 py-2 text-white font-mono text-xs focus:border-[#a3e635] outline-none"
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="text-gray-300 font-semibold block mb-1.5">
+                        Quantity of Cards to Generate *
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={1000}
+                        value={qrModalBulkQty}
+                        onChange={(e) => setQrModalBulkQty(e.target.value)}
+                        className="w-full bg-[#1b1e2c] border border-white/10 rounded-xl px-3.5 py-2 text-white font-mono text-xs focus:border-indigo-400 outline-none"
+                      />
+                      <div className="flex gap-2 mt-2">
+                        {[10, 25, 50, 100].map((q) => (
+                          <button
+                            key={q}
+                            type="button"
+                            onClick={() => setQrModalBulkQty(q)}
+                            className={`flex-1 py-1 rounded-lg text-xs font-mono border ${
+                              Number(qrModalBulkQty) === q
+                                ? 'bg-indigo-500 text-white border-indigo-400 font-bold'
+                                : 'bg-[#1b1e2c] text-gray-400 border-white/10'
+                            }`}
+                          >
+                            +{q}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Form Buttons */}
+                <div className="pt-2 flex justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateQrModalOpen(false)
+                      resetQrCreateForm()
+                    }}
+                    className="px-4 py-2.5 rounded-xl text-gray-400 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={qrModalSaving}
+                    className="bg-[#a3e635] hover:bg-[#bef264] text-black font-black py-2.5 px-6 rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {qrModalSaving ? (
+                      <span>Creating...</span>
+                    ) : (
+                      <>
+                        <CheckCircle2 size={15} />
+                        <span>{qrModalMode === 'bulk' ? `Generate ${qrModalBulkQty} Cards` : 'Generate QR Card'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: EDIT DESTINATION URL (Requirement 4: Permanent URL & Printed QR never change) ── */}
+      {editDestModalCard && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-[#0e1017] border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-4">
+              <div>
+                <h3 className="text-base font-black text-white">
+                  Edit Destination Target — Card #{editDestModalCard.card_id}
+                </h3>
+                <p className="text-[11px] text-gray-400 font-mono mt-0.5">
+                  Dynamic QR &amp; NFC Redirection Settings
+                </p>
+              </div>
+              <button
+                onClick={() => setEditDestModalCard(null)}
+                className="text-gray-400 hover:text-white p-1 rounded-lg text-xl"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Permanent URL Reassurance Banner (Requirement 4) */}
+            <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 mb-4 text-xs space-y-1">
+              <div className="font-bold text-emerald-400 flex items-center gap-1.5">
+                <ShieldCheck size={15} />
+                <span>Permanent URL &amp; Printed QR Unchanged</span>
+              </div>
+              <p className="text-gray-400 text-[11px] leading-relaxed">
+                Physical printed QR codes and programmed NFC stickers stay 100% valid forever. Only the redirection destination updates.
+              </p>
+              <div className="flex items-center gap-2 pt-1 font-mono text-[11px] text-gray-300">
+                <span className="text-gray-500">Permanent URL:</span>
+                <span className="text-[#a3e635] truncate">{editDestModalCard.permanent_url}</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveDestinationChanges} className="space-y-4 text-xs">
+              {/* QR Type Selector */}
+              <div>
+                <label className="font-semibold text-gray-300 block mb-1">
+                  Card Type
+                </label>
+                <select
+                  value={editDestType}
+                  onChange={(e) => setEditDestType(e.target.value)}
+                  className="w-full bg-[#161822] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:border-[#a3e635] outline-none"
+                >
+                  <option value="google_review">Google Review QR (Direct 1-Tap)</option>
+                  <option value="instagram">Instagram QR (Direct 1-Tap)</option>
+                  <option value="whatsapp">WhatsApp QR (Direct Chat)</option>
+                  <option value="3in1">3-in-1 QR Card (Landing Page Profile)</option>
+                </select>
+              </div>
+
+              {/* Business Name */}
+              <div>
+                <label className="font-semibold text-gray-300 block mb-1">
+                  Business / Profile Name
+                </label>
+                <input
+                  type="text"
+                  value={editDestBizName}
+                  onChange={(e) => setEditDestBizName(e.target.value)}
+                  placeholder="e.g. Aura Studio"
+                  className="w-full bg-[#161822] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:border-[#a3e635] outline-none"
+                />
+              </div>
+
+              {/* Destination URL for Google Review or Instagram */}
+              {(editDestType === 'google_review' || editDestType === 'instagram') && (
+                <div>
+                  <label className="font-semibold text-gray-300 block mb-1">
+                    {editDestType === 'google_review' ? 'Google Review URL *' : 'Instagram Profile URL or Handle *'}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editDestUrl}
+                    onChange={(e) => setEditDestUrl(e.target.value)}
+                    placeholder={
+                      editDestType === 'google_review'
+                        ? 'https://g.page/r/example or maps.app.goo.gl/...'
+                        : 'https://instagram.com/myhandle or @myhandle'
+                    }
+                    className="w-full bg-[#161822] border border-white/10 rounded-xl px-3.5 py-2.5 text-white font-mono focus:border-[#a3e635] outline-none"
+                  />
+                </div>
+              )}
+
+              {/* WhatsApp Inputs */}
+              {editDestType === 'whatsapp' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="font-semibold text-gray-300 block mb-1">
+                      WhatsApp Number with Country Code *
+                    </label>
+                    <input
+                      type="tel"
+                      required
+                      value={editDestWhatsApp}
+                      onChange={(e) => setEditDestWhatsApp(e.target.value)}
+                      placeholder="+91 98765 43210"
+                      className="w-full bg-[#161822] border border-white/10 rounded-xl px-3.5 py-2.5 text-white font-mono focus:border-emerald-400 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-semibold text-gray-300 block mb-1">
+                      Greeting Message
+                    </label>
+                    <input
+                      type="text"
+                      value={editDestWaMsg}
+                      onChange={(e) => setEditDestWaMsg(e.target.value)}
+                      placeholder="Hello, I am contacting you via your NFC card!"
+                      className="w-full bg-[#161822] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:border-emerald-400 outline-none"
+                    />
+                  </div>
+                  {editDestWhatsApp && (
+                    <div className="p-2.5 rounded-xl bg-black/40 border border-emerald-500/20 font-mono text-[11px] text-emerald-400 truncate">
+                      Live Target: {formatWhatsAppChatUrl(editDestWhatsApp, editDestWaMsg)}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Status */}
+              <div>
+                <label className="font-semibold text-gray-300 block mb-1">
+                  Card Status
+                </label>
+                <select
+                  value={editDestStatus}
+                  onChange={(e) => setEditDestStatus(e.target.value)}
+                  className="w-full bg-[#161822] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:border-[#a3e635] outline-none"
+                >
+                  <option value="active">Active (Redirecting Live)</option>
+                  <option value="available">Available (Unassigned)</option>
+                  <option value="assigned">Assigned</option>
+                </select>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-4 border-t border-white/10 flex justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setEditDestModalCard(null)}
+                  className="px-4 py-2.5 rounded-xl text-gray-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editDestSaving}
+                  className="bg-[#a3e635] hover:bg-[#bef264] text-black font-black py-2.5 px-6 rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {editDestSaving ? (
+                    <span>Saving...</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={15} />
+                      <span>Save Destination Changes</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

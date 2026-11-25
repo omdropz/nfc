@@ -39,14 +39,22 @@ CREATE TABLE IF NOT EXISTS businesses (
 -- ────────────────────────────────────────────────────────────────────
 -- 2. NFC_CARDS TABLE
 -- Stores permanent NFC cards (001, 002, 003...)
+-- Supports 3-in-1 multi cards and Single Dynamic QR cards (Google Review, Instagram, WhatsApp)
 -- ────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS nfc_cards (
-  card_id                 TEXT PRIMARY KEY, -- '001', '002', '003'...
+  card_id                 TEXT PRIMARY KEY, -- '001', '002', '101'...
   card_number             TEXT NOT NULL,    -- 3-digit numeric string
+  card_type               TEXT NOT NULL DEFAULT '3in1', -- '3in1' | 'google_review' | 'instagram' | 'whatsapp'
   status                  TEXT NOT NULL DEFAULT 'available', -- 'available' | 'assigned' | 'linked' | 'active'
   nfc_status              TEXT NOT NULL DEFAULT 'not_programmed', -- 'not_programmed' | 'programmed' | 'tested'
   business_id             TEXT REFERENCES businesses(id) ON DELETE SET NULL,
-  permanent_url           TEXT NOT NULL,    -- https://nfc-sage.vercel.app/c/001
+  business_name           TEXT,             -- Single QR business/profile name
+  destination_url         TEXT,             -- Direct target URL for single QR cards
+  whatsapp_number         TEXT,             -- WhatsApp number for WhatsApp QR cards
+  whatsapp_message        TEXT,             -- Optional welcome message
+  scan_count              INTEGER DEFAULT 0,
+  last_scanned_at         TIMESTAMPTZ,
+  permanent_url           TEXT NOT NULL,    -- https://nfc-sage.vercel.app/p/001
   nfc_url                 TEXT NOT NULL,    -- URL written to physical NTAG213 tag
   qrhub_qr_id             TEXT,             -- Optional dynamic QR Hub ID
   nfc_programmed_at       TIMESTAMPTZ,
@@ -58,6 +66,16 @@ CREATE TABLE IF NOT EXISTS nfc_cards (
 CREATE INDEX IF NOT EXISTS idx_nfc_cards_business_id ON nfc_cards(business_id);
 CREATE INDEX IF NOT EXISTS idx_nfc_cards_status ON nfc_cards(status);
 CREATE INDEX IF NOT EXISTS idx_nfc_cards_nfc_status ON nfc_cards(nfc_status);
+CREATE INDEX IF NOT EXISTS idx_nfc_cards_card_type ON nfc_cards(card_type);
+
+-- Safe migrations for existing databases:
+ALTER TABLE nfc_cards ADD COLUMN IF NOT EXISTS card_type TEXT NOT NULL DEFAULT '3in1';
+ALTER TABLE nfc_cards ADD COLUMN IF NOT EXISTS business_name TEXT;
+ALTER TABLE nfc_cards ADD COLUMN IF NOT EXISTS destination_url TEXT;
+ALTER TABLE nfc_cards ADD COLUMN IF NOT EXISTS whatsapp_number TEXT;
+ALTER TABLE nfc_cards ADD COLUMN IF NOT EXISTS whatsapp_message TEXT;
+ALTER TABLE nfc_cards ADD COLUMN IF NOT EXISTS scan_count INTEGER DEFAULT 0;
+ALTER TABLE nfc_cards ADD COLUMN IF NOT EXISTS last_scanned_at TIMESTAMPTZ;
 
 -- ────────────────────────────────────────────────────────────────────
 -- 3. OWNER_ACCOUNTS TABLE

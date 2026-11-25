@@ -17,6 +17,21 @@ export async function generateQRDataURL(url) {
 }
 
 /**
+ * Generates vector SVG string for a given URL.
+ */
+export async function generateQRSVG(url) {
+  return QRCode.toString(url, {
+    type: 'svg',
+    errorCorrectionLevel: 'H',
+    margin: 2,
+    color: {
+      dark: '#000000',
+      light: '#ffffff',
+    },
+  })
+}
+
+/**
  * Creates a printable PNG image with the QR Code and only the numeric ID label (e.g. 001).
  * Zero prefixes or suffixes: no "NFC", "PVC", "CARD", or "#".
  * Returns a Blob.
@@ -51,7 +66,7 @@ export async function createBrandedQRPNG(url, cardId) {
       ctx.lineTo(600, 630)
       ctx.stroke()
 
-      // Pure numeric ID (e.g. 001) - no prefixes/suffixes
+      // Pure numeric ID (e.g. 001 or 101) - no prefixes/suffixes
       ctx.fillStyle = '#111827'
       ctx.font = 'bold 36px monospace, Inter, system-ui, sans-serif'
       ctx.textAlign = 'center'
@@ -70,7 +85,7 @@ export async function createBrandedQRPNG(url, cardId) {
 }
 
 /**
- * Triggers single PNG QR code download with filename matching only numeric ID (e.g. 001.png).
+ * Triggers single PNG QR code download with filename matching only numeric ID (e.g. 101.png).
  */
 export async function downloadSingleQRPNG(url, cardId) {
   const blob = await createBrandedQRPNG(url, cardId)
@@ -85,32 +100,56 @@ export async function downloadSingleQRPNG(url, cardId) {
 }
 
 /**
- * Generates and downloads a ZIP file containing bulk QR Code PNGs (001.png, 002.png, ...) + manifest.csv
+ * Triggers single vector SVG QR code download with filename matching only numeric ID (e.g. 101.svg).
  */
-export async function downloadAllCardsZip(cards, baseUrl, onProgress) {
+export async function downloadSingleQRSVG(url, cardId) {
+  const svgString = await generateQRSVG(url)
+  const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' })
+  const downloadUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = downloadUrl
+  a.download = `${cardId}.svg`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(downloadUrl)
+}
+
+/**
+ * Generates and downloads a ZIP file containing bulk QR Codes (PNGs and/or SVGs) + manifest.csv
+ */
+export async function downloadAllCardsZip(cards, baseUrl, options = { includePng: true, includeSvg: true }, onProgress = null) {
   if (!cards || cards.length === 0) return
 
   const zip = new JSZip()
-  const folder = zip.folder('QR-Codes')
-
   const total = cards.length
+  const includePng = options?.includePng !== false
+  const includeSvg = options?.includeSvg !== false
+
   for (let i = 0; i < total; i++) {
     const card = cards[i]
     const id = card.card_id || card.page_id
     const permanentUrl =
-      card.permanent_url || `${baseUrl.replace(/\/$/, '')}/c/${id}`
+      card.permanent_url || `${baseUrl.replace(/\/$/, '')}/p/${id}`
 
     if (onProgress) {
       onProgress({
         current: i + 1,
         total,
         percent: Math.round(((i + 1) / total) * 90),
-        message: `Generating ${id}.png...`,
+        message: `Processing QR ${id}...`,
       })
     }
 
-    const blob = await createBrandedQRPNG(permanentUrl, id)
-    folder.file(`${id}.png`, blob)
+    if (includePng) {
+      const pngBlob = await createBrandedQRPNG(permanentUrl, id)
+      zip.file(`${id}.png`, pngBlob)
+    }
+
+    if (includeSvg) {
+      const svgString = await generateQRSVG(permanentUrl)
+      zip.file(`${id}.svg`, svgString)
+    }
   }
 
   // Generate Manifest CSV and add to zip
@@ -123,7 +162,7 @@ export async function downloadAllCardsZip(cards, baseUrl, onProgress) {
     })
   }
   const csvContent = generateCSVContent(cards, baseUrl)
-  folder.file('manifest.csv', csvContent)
+  zip.file('manifest.csv', csvContent)
 
   if (onProgress) {
     onProgress({
@@ -151,47 +190,57 @@ export async function downloadAllCardsZip(cards, baseUrl, onProgress) {
 }
 
 /**
- * Generates CSV content string.
+ * Generates CSV content string with QR Type and Destination details.
  */
 export function generateCSVContent(cards, baseUrl) {
   const cleanBase = baseUrl.replace(/\/$/, '')
   const headers = [
     'ID',
+    'QR Type',
     'Status',
     'Hardware Chip',
+    'NFC Programming Status',
+    'Destination Target URL',
     'Permanent Web URL',
     'NFC Tag URL',
     'Assigned Business ID',
-    'Assigned Business Name',
+    'Business / Profile Name',
     'WhatsApp Number',
-    'Google Review URL',
-    'Instagram URL',
     'Created At',
   ]
 
+  const formatTypeLabel = (type) => {
+    if (type === 'google_review') return 'Google Review QR'
+    if (type === 'instagram') return 'Instagram QR'
+    if (type === 'whatsapp') return 'WhatsApp QR'
+    return '3-in-1 QR Card'
+  }
+
   const rows = cards.map((c) => {
     const id = c.card_id || c.page_id
-    const permUrl = c.permanent_url || `${cleanBase}/c/${id}`
+    const permUrl = c.permanent_url || `${cleanBase}/p/${id}`
     const nfcUrl = c.nfc_url || permUrl
-    const status = c.status || (c.business_id ? 'assigned' : 'available')
+    const cType = c.card_type || '3in1'
+    const status = c.status || (c.destination_url || c.business_id ? 'active' : 'available')
+    const nfcStatus = c.nfc_status || 'not_programmed'
     const bizId = c.business_id || ''
     const bizName = c.business_name || (c.business ? c.business.name : 'Unassigned')
+    const destination = c.destination_url || (c.business ? c.business.google_review_url : '') || ''
     const wa = c.whatsapp_number || (c.business ? c.business.whatsapp_number : '') || ''
-    const gUrl = c.google_review_url || (c.business ? c.business.google_review_url : '') || ''
-    const igUrl = c.instagram_url || (c.business ? c.business.instagram_url : '') || ''
     const created = c.created_at || new Date().toISOString()
 
     return [
       `"${id}"`,
+      `"${formatTypeLabel(cType)}"`,
       `"${status.toUpperCase()}"`,
       `"NTAG213"`,
+      `"${nfcStatus.toUpperCase()}"`,
+      `"${destination.replace(/"/g, '""')}"`,
       `"${permUrl}"`,
       `"${nfcUrl}"`,
       `"${bizId}"`,
       `"${bizName.replace(/"/g, '""')}"`,
       `"${wa}"`,
-      `"${gUrl}"`,
-      `"${igUrl}"`,
       `"${created}"`,
     ].join(',')
   })

@@ -124,6 +124,33 @@ export const getPage = async (pageId) => {
   // Check Card in IndexedDB
   const cardRecord = await idbGetCard(normalizedCardId)
   if (cardRecord) {
+    const cardType = cardRecord.card_type || '3in1'
+    const isSingleQr = cardType !== '3in1' || Boolean(cardRecord.destination_url)
+
+    // Handle Single Dynamic QR Card (Google Review, Instagram, WhatsApp)
+    if (isSingleQr && (cardRecord.destination_url || cardType !== '3in1')) {
+      return {
+        success: true,
+        page: {
+          page_id: normalizedCardId,
+          card_id: normalizedCardId,
+          card_number: normalizedCardId,
+          card_type: cardType,
+          destination_url: cardRecord.destination_url || '',
+          business_name: cardRecord.business_name || '',
+          whatsapp_number: cardRecord.whatsapp_number || '',
+          whatsapp_message: cardRecord.whatsapp_message || '',
+          status: cardRecord.status || (cardRecord.destination_url ? 'active' : 'available'),
+          nfc_status: cardRecord.nfc_status || 'not_programmed',
+          permanent_url: cardRecord.permanent_url,
+          nfc_url: cardRecord.nfc_url,
+          footer_brand: 'OMDROPZ',
+          bg_color: '#050507',
+          btn_color: '#a3e635',
+        },
+      }
+    }
+
     if (cardRecord.business_id) {
       // Resolve linked business!
       const business = await idbGetBusiness(cardRecord.business_id)
@@ -134,6 +161,7 @@ export const getPage = async (pageId) => {
             page_id: normalizedCardId,
             card_id: normalizedCardId,
             card_number: normalizedCardId,
+            card_type: '3in1',
             business_id: business.id,
             business_name: business.name,
             welcome_message: business.welcome_message || '',
@@ -163,6 +191,7 @@ export const getPage = async (pageId) => {
           page_id: normalizedCardId,
           card_id: normalizedCardId,
           card_number: normalizedCardId,
+          card_type: '3in1',
           status: 'available',
           is_bulk: true,
           business_name: '',
