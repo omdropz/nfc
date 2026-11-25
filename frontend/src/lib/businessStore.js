@@ -6,6 +6,7 @@ import {
   idbSaveBusiness,
   idbListBusinesses,
   idbDeleteBusiness,
+  idbDeleteCard,
   idbGetPage,
   idbSavePage,
 } from './idb.js'
@@ -25,8 +26,17 @@ export const BUSINESS_CATEGORIES = [
   'Other',
 ]
 
-export function formatCardId(num) {
-  return String(num).padStart(3, '0')
+/**
+ * Flexible card ID formatter:
+ * 1 -> '001', 50 -> '050', 100 -> '100', 1000 -> '1000'
+ * Preserves alphanumeric IDs as-is.
+ */
+export function formatCardId(val) {
+  const str = String(val ?? '').trim()
+  if (/^\d+$/.test(str)) {
+    return str.length < 3 ? str.padStart(3, '0') : str
+  }
+  return str
 }
 
 export function generateCardUrl(cardId, baseUrl = DEFAULT_BASE_URL) {
@@ -41,75 +51,211 @@ export function generateBusinessId() {
 }
 
 /**
- * Initialize 50 permanent PVC NFC Cards (001 to 050)
- * Syncs with existing cards and indexedDB storage.
+ * Determines the next sequential numeric Card ID.
+ * Example: if cards 001..050 exist, returns '051'.
+ */
+export async function getNextCardId() {
+  const existingCards = await idbListCards()
+  if (!existingCards || existingCards.length === 0) {
+    return '001'
+  }
+
+  let maxNum = 0
+  existingCards.forEach((c) => {
+    const rawId = String(c.card_id || '').trim()
+    if (/^\d+$/.test(rawId)) {
+      const num = parseInt(rawId, 10)
+      if (num > maxNum) maxNum = num
+    }
+  })
+
+  return formatCardId(maxNum + 1)
+}
+
+/**
+ * Initialize system storage.
+ * If database is completely fresh, seeds an initial batch (001 to 050) for immediate use.
+ * Never caps or resets existing cards.
  */
 export async function initBusinessStore(baseUrl = DEFAULT_BASE_URL) {
   const existingCards = await idbListCards()
-  const existingMap = new Map()
-  existingCards.forEach((c) => {
-    if (c.card_id) existingMap.set(String(c.card_id).toLowerCase(), c)
-  })
+  if (existingCards && existingCards.length > 0) {
+    return existingCards
+  }
 
-  // Check legacy business_pages store for backward compatibility
-  const legacyPages = await idbListCards().catch(() => [])
-
-  const cards = []
+  // Fresh setup: seed initial batch
+  const initialCards = []
   const supabase = getSupabaseClient()
 
   for (let i = 1; i <= 50; i++) {
     const cardId = formatCardId(i)
-    const existing = existingMap.get(cardId.toLowerCase())
     const permanentUrl = generateCardUrl(cardId, baseUrl)
+    const newCard = {
+      card_id: cardId,
+      card_number: cardId,
+      status: 'available', // 'available' | 'assigned' | 'linked' | 'active'
+      business_id: null,
+      permanent_url: permanentUrl,
+      nfc_url: permanentUrl,
+      qrhub_qr_id: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+    initialCards.push(newCard)
+    await idbSaveCard(newCard)
 
-    if (existing) {
-      const updated = {
-        ...existing,
-        card_id: cardId,
-        card_number: cardId,
-        permanent_url: existing.permanent_url || permanentUrl,
-        nfc_url: existing.nfc_url || permanentUrl,
-        status: existing.status || (existing.business_id ? 'assigned' : 'available'),
-      }
-      cards.push(updated)
-      await idbSaveCard(updated)
-    } else {
-      const newCard = {
-        card_id: cardId,
-        card_number: cardId,
-        status: 'available', // 'available' | 'assigned' | 'linked' | 'active'
-        business_id: null,
-        permanent_url: permanentUrl,
-        nfc_url: permanentUrl,
-        qrhub_qr_id: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }
-      cards.push(newCard)
-      await idbSaveCard(newCard)
-
-      if (supabase) {
-        try {
-          await supabase.from('nfc_cards').upsert(newCard, { onConflict: 'card_id' })
-        } catch {}
-      }
+    if (supabase) {
+      try {
+        await supabase.from('nfc_cards').upsert(newCard, { onConflict: 'card_id' })
+      } catch {}
     }
   }
 
-  return cards
+  return initialCards
 }
 
 /**
- * Get all 50 cards with their linked business details
+ * Create a single new NFC Card with an automatically or custom generated Card ID.
+ * Unlimited card support.
+ */
+export async function createCard(customCardId = null, baseUrl = DEFAULT_BASE_URL) {
+  const cardId = customCardId ? formatCardId(customCardId) : await getNextCardId()
+  const permanentUrl = generateCardUrl(cardId, baseUrl)
+  const now = new Date().toISOString()
+
+  const newCard = {
+    card_id: cardId,
+    card_number: cardId,
+    status: 'available',
+    business_id: null,
+    permanent_url: permanentUrl,
+    nfc_url: permanentUrl,
+    qrhub_qr_id: null,
+    created_at: now,
+    updated_at: now,
+  }
+
+  await idbSaveCard(newCard)
+
+  // Sync to Supabase
+  const supabase = getSupabaseClient()
+  if (supabase) {
+    try {
+      await supabase.from('nfc_cards').upsert(newCard, { onConflict: 'card_id' })
+    } catch (err) {
+      console.warn('Supabase createCard sync warning:', err)
+    }
+  }
+
+  // Dispatch real-time event
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('nfc_card_created', { detail: { card: newCard } }))
+  }
+
+  return newCard
+}
+
+/**
+ * Bulk create any quantity of NFC Cards (e.g. 10, 50, 100, 500 or more).
+ * Calculates sequential IDs and persists each card.
+ */
+export async function bulkCreateCards(quantity, baseUrl = DEFAULT_BASE_URL, onProgress = null) {
+  const count = parseInt(quantity, 10)
+  if (isNaN(count) || count <= 0) {
+    throw new Error('Quantity must be a positive integer')
+  }
+
+  const existingCards = await idbListCards()
+  let maxNum = 0
+  existingCards.forEach((c) => {
+    const rawId = String(c.card_id || '').trim()
+    if (/^\d+$/.test(rawId)) {
+      const num = parseInt(rawId, 10)
+      if (num > maxNum) maxNum = num
+    }
+  })
+
+  const newCards = []
+  const supabase = getSupabaseClient()
+  const now = new Date().toISOString()
+
+  for (let i = 1; i <= count; i++) {
+    const nextNum = maxNum + i
+    const cardId = formatCardId(nextNum)
+    const permanentUrl = generateCardUrl(cardId, baseUrl)
+
+    const card = {
+      card_id: cardId,
+      card_number: cardId,
+      status: 'available',
+      business_id: null,
+      permanent_url: permanentUrl,
+      nfc_url: permanentUrl,
+      qrhub_qr_id: null,
+      created_at: now,
+      updated_at: now,
+    }
+
+    newCards.push(card)
+    await idbSaveCard(card)
+
+    if (onProgress && (i % 25 === 0 || i === count)) {
+      onProgress(i, count)
+    }
+  }
+
+  // Batch sync to Supabase if connected
+  if (supabase) {
+    try {
+      // Chunk upserts in batches of 100
+      for (let i = 0; i < newCards.length; i += 100) {
+        const batch = newCards.slice(i, i + 100)
+        await supabase.from('nfc_cards').upsert(batch, { onConflict: 'card_id' })
+      }
+    } catch (err) {
+      console.warn('Supabase bulkCreateCards sync warning:', err)
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('nfc_cards_bulk_created', { detail: { count, cards: newCards } }))
+  }
+
+  return newCards
+}
+
+/**
+ * Delete a card (only allowed if unassigned or explicitly requested)
+ */
+export async function deleteCardRecord(cardId) {
+  const formattedId = formatCardId(cardId)
+  await idbDeleteCard(formattedId)
+
+  const supabase = getSupabaseClient()
+  if (supabase) {
+    try {
+      await supabase.from('nfc_cards').delete().eq('card_id', formattedId)
+    } catch {}
+  }
+  return true
+}
+
+/**
+ * Get all cards (with populated business data)
  */
 export async function getAllCards(baseUrl = DEFAULT_BASE_URL) {
   let cards = await idbListCards()
-  if (!cards || cards.length < 50) {
+  if (!cards || cards.length === 0) {
     cards = await initBusinessStore(baseUrl)
   }
 
-  // Sort 001 to 050
-  cards.sort((a, b) => parseInt(a.card_id, 10) - parseInt(b.card_id, 10))
+  // Sort natural numeric order or alphanumeric
+  cards.sort((a, b) => {
+    const numA = parseInt(a.card_id, 10)
+    const numB = parseInt(b.card_id, 10)
+    if (!isNaN(numA) && !isNaN(numB)) return numA - numB
+    return String(a.card_id).localeCompare(String(b.card_id))
+  })
 
   const businesses = await idbListBusinesses()
   const bizMap = new Map()
@@ -128,16 +274,70 @@ export async function getAllCards(baseUrl = DEFAULT_BASE_URL) {
 }
 
 /**
- * Get a single card and its business details
+ * Scalable paginated cards query with search and status filter.
+ * Ensures the dashboard stays fast even with thousands of cards.
+ */
+export async function getCardsPaginated({
+  page = 1,
+  pageSize = 25,
+  search = '',
+  status = 'all',
+  baseUrl = DEFAULT_BASE_URL,
+}) {
+  const allCards = await getAllCards(baseUrl)
+
+  // Overall metrics across ALL cards
+  const metrics = {
+    totalCards: allCards.length,
+    availableCards: allCards.filter((c) => c.status === 'available' || !c.business_id).length,
+    assignedCards: allCards.filter((c) => c.status === 'assigned' || c.status === 'linked' || c.status === 'active').length,
+    linkedCards: allCards.filter((c) => c.status === 'linked').length,
+  }
+
+  const query = search.trim().toLowerCase()
+
+  const filtered = allCards.filter((c) => {
+    const matchesSearch =
+      !query ||
+      String(c.card_id).toLowerCase().includes(query) ||
+      (c.business_name && c.business_name.toLowerCase().includes(query)) ||
+      (c.business_id && String(c.business_id).toLowerCase().includes(query))
+
+    if (!matchesSearch) return false
+
+    if (status === 'available') return c.status === 'available' || !c.business_id
+    if (status === 'assigned') return c.status === 'assigned'
+    if (status === 'linked') return c.status === 'linked'
+    if (status === 'active') return c.status === 'active'
+
+    return true
+  })
+
+  const total = filtered.length
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const currentPage = Math.min(Math.max(1, page), totalPages)
+  const startIndex = (currentPage - 1) * pageSize
+  const items = filtered.slice(startIndex, startIndex + pageSize)
+
+  return {
+    items,
+    total,
+    totalPages,
+    currentPage,
+    pageSize,
+    metrics,
+  }
+}
+
+/**
+ * Get a single card and its linked business details
  */
 export async function getCardById(cardId, baseUrl = DEFAULT_BASE_URL) {
   const formattedId = formatCardId(cardId)
   let card = await idbGetCard(formattedId)
 
   if (!card) {
-    // Attempt lazy init
-    await initBusinessStore(baseUrl)
-    card = await idbGetCard(formattedId)
+    card = await idbGetCard(String(cardId).toLowerCase())
   }
 
   if (!card) return null
@@ -154,13 +354,12 @@ export async function getCardById(cardId, baseUrl = DEFAULT_BASE_URL) {
 }
 
 /**
- * Get all businesses with their linked cards array
+ * Get all businesses with their linked cards array (Unlimited businesses)
  */
 export async function getAllBusinesses() {
   const businesses = await idbListBusinesses()
   const cards = await idbListCards()
 
-  // Group card IDs by business_id
   const cardGroup = new Map()
   cards.forEach((c) => {
     if (c.business_id) {
@@ -172,13 +371,49 @@ export async function getAllBusinesses() {
 
   return businesses.map((b) => {
     const linkedCards = cardGroup.get(String(b.id).toLowerCase()) || []
-    linkedCards.sort((x, y) => parseInt(x, 10) - parseInt(y, 10))
+    linkedCards.sort((x, y) => {
+      const numX = parseInt(x, 10)
+      const numY = parseInt(y, 10)
+      if (!isNaN(numX) && !isNaN(numY)) return numX - numY
+      return String(x).localeCompare(String(y))
+    })
     return {
       ...b,
       linkedCards,
       cardCount: linkedCards.length,
     }
   })
+}
+
+/**
+ * Scalable paginated businesses query with search
+ */
+export async function getBusinessesPaginated({ page = 1, pageSize = 25, search = '' }) {
+  const allBiz = await getAllBusinesses()
+  const query = search.trim().toLowerCase()
+
+  const filtered = allBiz.filter((b) => {
+    if (!query) return true
+    return (
+      (b.name && b.name.toLowerCase().includes(query)) ||
+      (b.category && b.category.toLowerCase().includes(query)) ||
+      (b.id && String(b.id).toLowerCase().includes(query))
+    )
+  })
+
+  const total = filtered.length
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const currentPage = Math.min(Math.max(1, page), totalPages)
+  const startIndex = (currentPage - 1) * pageSize
+  const items = filtered.slice(startIndex, startIndex + pageSize)
+
+  return {
+    items,
+    total,
+    totalPages,
+    currentPage,
+    pageSize,
+  }
 }
 
 /**
@@ -190,7 +425,8 @@ export async function getBusinessById(businessId) {
 }
 
 /**
- * Create a new business and optionally link a card
+ * Create a new business and optionally link a card.
+ * Unlimited businesses supported.
  */
 export async function createBusiness(data, initialCardId = null, baseUrl = DEFAULT_BASE_URL) {
   const bizId = data.id || generateBusinessId()
@@ -213,7 +449,6 @@ export async function createBusiness(data, initialCardId = null, baseUrl = DEFAU
     instagram_enabled: data.instagram_enabled !== false,
     welcome_message: data.welcome_message || '',
     footer_brand: 'OMDROPZ',
-    // Owner Access
     owner_phone: data.owner_phone ? String(data.owner_phone).trim() : '',
     owner_pin: data.owner_pin ? String(data.owner_pin).trim() : '',
     owner_access_enabled: Boolean(data.owner_access_enabled && data.owner_phone && data.owner_pin),
@@ -221,10 +456,8 @@ export async function createBusiness(data, initialCardId = null, baseUrl = DEFAU
     updated_at: now,
   }
 
-  // Save business
   await idbSaveBusiness(newBusiness)
 
-  // Sync to Supabase
   const supabase = getSupabaseClient()
   if (supabase) {
     try {
@@ -234,12 +467,10 @@ export async function createBusiness(data, initialCardId = null, baseUrl = DEFAU
     }
   }
 
-  // If initial card provided, link it
   if (initialCardId) {
     await linkCardToBusiness(initialCardId, bizId, baseUrl)
   }
 
-  // Dispatch real-time update
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('nfc_business_updated', { detail: { business: newBusiness } }))
   }
@@ -248,7 +479,7 @@ export async function createBusiness(data, initialCardId = null, baseUrl = DEFAU
 }
 
 /**
- * Update business details (ONLY business details and social button toggles)
+ * Update business details (ONLY business info and toggles - design remains untouched)
  */
 export async function updateBusiness(businessId, updates) {
   const current = await idbGetBusiness(businessId)
@@ -270,7 +501,6 @@ export async function updateBusiness(businessId, updates) {
     instagram_text: updates.instagram_text !== undefined ? updates.instagram_text : current.instagram_text,
     instagram_enabled: updates.instagram_enabled !== undefined ? updates.instagram_enabled : current.instagram_enabled,
     welcome_message: updates.welcome_message !== undefined ? updates.welcome_message : current.welcome_message,
-    // Owner Access updates if provided
     ...(updates.owner_phone !== undefined && { owner_phone: updates.owner_phone }),
     ...(updates.owner_pin !== undefined && { owner_pin: updates.owner_pin }),
     ...(updates.owner_access_enabled !== undefined && { owner_access_enabled: updates.owner_access_enabled }),
@@ -279,7 +509,6 @@ export async function updateBusiness(businessId, updates) {
 
   await idbSaveBusiness(updated)
 
-  // Sync to Supabase
   const supabase = getSupabaseClient()
   if (supabase) {
     try {
@@ -311,7 +540,6 @@ export async function updateBusiness(businessId, updates) {
     await idbSavePage(legacyPage)
   } catch {}
 
-  // Dispatch real-time event
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
       new CustomEvent('nfc_page_updated', {
@@ -343,8 +571,8 @@ export async function updateBusiness(businessId, updates) {
 }
 
 /**
- * Link an NFC Card to a Business
- * One business can have multiple cards (e.g. Salon buys cards 001, 002, 003).
+ * Link an NFC Card to a Business.
+ * One business can have multiple cards linked to it.
  * One card belongs to only one business at a time.
  */
 export async function linkCardToBusiness(cardId, businessId, baseUrl = DEFAULT_BASE_URL) {
@@ -365,13 +593,11 @@ export async function linkCardToBusiness(cardId, businessId, baseUrl = DEFAULT_B
   const business = await idbGetBusiness(businessId)
   if (!business) throw new Error(`Business ${businessId} not found`)
 
-  // Check how many cards already linked to this business
   const allCards = await idbListCards()
   const alreadyLinkedCount = allCards.filter(
     (c) => c.business_id && String(c.business_id).toLowerCase() === String(businessId).toLowerCase()
   ).length
 
-  // First card is 'assigned', subsequent cards are 'linked' (or 'active')
   const newStatus = alreadyLinkedCount === 0 ? 'assigned' : 'linked'
 
   const updatedCard = {
@@ -383,7 +609,6 @@ export async function linkCardToBusiness(cardId, businessId, baseUrl = DEFAULT_B
 
   await idbSaveCard(updatedCard)
 
-  // Sync to Supabase
   const supabase = getSupabaseClient()
   if (supabase) {
     try {
@@ -393,7 +618,6 @@ export async function linkCardToBusiness(cardId, businessId, baseUrl = DEFAULT_B
     }
   }
 
-  // Also sync to legacy business_pages so legacy /p/:cardId resolves immediately
   try {
     const legacyPage = {
       page_id: formattedId,
@@ -429,7 +653,7 @@ export async function linkCardToBusiness(cardId, businessId, baseUrl = DEFAULT_B
 }
 
 /**
- * Unlink a card from its business, resetting it back to 'available'
+ * Unlink a card, returning it to 'available' state
  */
 export async function unlinkCard(cardId) {
   const formattedId = formatCardId(cardId)
@@ -452,7 +676,6 @@ export async function unlinkCard(cardId) {
     } catch {}
   }
 
-  // Reset legacy page record as well
   try {
     const legacyPage = {
       page_id: formattedId,
@@ -473,7 +696,7 @@ export async function unlinkCard(cardId) {
 }
 
 /**
- * Delete a business and unlink all its cards
+ * Delete a business and unlink all its attached cards
  */
 export async function deleteBusiness(businessId) {
   const cards = await idbListCards()
@@ -481,7 +704,6 @@ export async function deleteBusiness(businessId) {
     (c) => c.business_id && String(c.business_id).toLowerCase() === String(businessId).toLowerCase()
   )
 
-  // Unlink each card
   for (const c of linked) {
     await unlinkCard(c.card_id)
   }
@@ -516,7 +738,6 @@ export async function verifyOwnerLogin(mobileNumber, pin) {
   })
 
   if (match) {
-    // Return sanitized owner profile session
     return {
       businessId: match.id,
       businessName: match.name,

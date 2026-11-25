@@ -59,6 +59,7 @@ export async function createBrandedQRPNG(url, cardId) {
       // Encoded URL Label
       ctx.fillStyle = '#6b7280'
       ctx.font = '500 16px monospace, sans-serif'
+      ctx.textAlign = 'center'
       ctx.fillText(url, width / 2, 702)
 
       canvas.toBlob((blob) => resolve(blob), 'image/png')
@@ -83,20 +84,30 @@ export async function downloadSingleQRPNG(url, cardId) {
 }
 
 /**
- * Generates and downloads a ZIP file containing all 50 QR Code PNGs + manifest.csv
+ * Generates and downloads a ZIP file containing bulk QR Code PNGs + manifest.csv
+ * Fully scalable for any number of cards (10, 50, 100, 500, etc.).
  */
 export async function downloadAllCardsZip(cards, baseUrl, onProgress) {
+  if (!cards || cards.length === 0) return
+
   const zip = new JSZip()
-  const folder = zip.folder('NFC-50-Cards-QR-Codes')
+  const folderName = `NFC-${cards.length}-Cards-QR-Codes`
+  const folder = zip.folder(folderName)
 
   const total = cards.length
   for (let i = 0; i < total; i++) {
     const card = cards[i]
-    const id = card.page_id
-    const permanentUrl = `${baseUrl.replace(/\/$/, '')}/p/${id}`
+    const id = card.card_id || card.page_id
+    const permanentUrl =
+      card.permanent_url || `${baseUrl.replace(/\/$/, '')}/c/${id}`
 
     if (onProgress) {
-      onProgress(Math.round(((i + 1) / total) * 90), `Generating QR for Card #${id}...`)
+      onProgress({
+        current: i + 1,
+        total,
+        percent: Math.round(((i + 1) / total) * 90),
+        message: `Generating QR for Card #${id}...`,
+      })
     }
 
     const blob = await createBrandedQRPNG(permanentUrl, id)
@@ -105,13 +116,23 @@ export async function downloadAllCardsZip(cards, baseUrl, onProgress) {
 
   // Generate Manifest CSV and add to zip
   if (onProgress) {
-    onProgress(95, 'Building Manifest CSV...')
+    onProgress({
+      current: total,
+      total,
+      percent: 95,
+      message: 'Building Manifest CSV...',
+    })
   }
   const csvContent = generateCSVContent(cards, baseUrl)
-  folder.file('NFC-50-Cards-Index.csv', csvContent)
+  folder.file(`NFC-Cards-${total}-Index.csv`, csvContent)
 
   if (onProgress) {
-    onProgress(98, 'Compressing ZIP package...')
+    onProgress({
+      current: total,
+      total,
+      percent: 98,
+      message: 'Compressing ZIP package...',
+    })
   }
   const zipBlob = await zip.generateAsync({ type: 'blob' })
 
@@ -119,27 +140,29 @@ export async function downloadAllCardsZip(cards, baseUrl, onProgress) {
   const downloadUrl = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = downloadUrl
-  a.download = `NFC-50-PVC-Cards-Bundle.zip`
+  a.download = `NFC-Cards-${total}-QR-Bundle.zip`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(downloadUrl)
 
   if (onProgress) {
-    onProgress(100, 'Complete!')
+    onProgress(null)
   }
 }
 
 /**
- * Generates CSV content string.
+ * Generates CSV content string for NTAG213 NFC chip programming and manufacturing.
  */
 export function generateCSVContent(cards, baseUrl) {
   const cleanBase = baseUrl.replace(/\/$/, '')
   const headers = [
     'Card ID',
     'Status',
+    'Hardware Chip',
     'Permanent Web URL',
     'NFC Tag URL (NTAG213)',
+    'Assigned Business ID',
     'Assigned Business Name',
     'WhatsApp Number',
     'Google Review URL',
@@ -148,21 +171,25 @@ export function generateCSVContent(cards, baseUrl) {
   ]
 
   const rows = cards.map((c) => {
-    const id = c.page_id
-    const permUrl = `${cleanBase}/p/${id}`
-    const status = c.status || 'available'
-    const name = c.business_name || 'Unassigned'
-    const wa = c.whatsapp_number || ''
-    const gUrl = c.google_review_url || ''
-    const igUrl = c.instagram_url || ''
+    const id = c.card_id || c.page_id
+    const permUrl = c.permanent_url || `${cleanBase}/c/${id}`
+    const nfcUrl = c.nfc_url || permUrl
+    const status = c.status || (c.business_id ? 'assigned' : 'available')
+    const bizId = c.business_id || ''
+    const bizName = c.business_name || (c.business ? c.business.name : 'Unassigned')
+    const wa = c.whatsapp_number || (c.business ? c.business.whatsapp_number : '') || ''
+    const gUrl = c.google_review_url || (c.business ? c.business.google_review_url : '') || ''
+    const igUrl = c.instagram_url || (c.business ? c.business.instagram_url : '') || ''
     const created = c.created_at || new Date().toISOString()
 
     return [
       `"${id}"`,
       `"${status.toUpperCase()}"`,
+      `"NTAG213"`,
       `"${permUrl}"`,
-      `"${permUrl}"`,
-      `"${name.replace(/"/g, '""')}"`,
+      `"${nfcUrl}"`,
+      `"${bizId}"`,
+      `"${bizName.replace(/"/g, '""')}"`,
       `"${wa}"`,
       `"${gUrl}"`,
       `"${igUrl}"`,
@@ -174,7 +201,7 @@ export function generateCSVContent(cards, baseUrl) {
 }
 
 /**
- * Triggers CSV file download.
+ * Triggers CSV manifest file download.
  */
 export function downloadCSVFile(cards, baseUrl) {
   const csv = generateCSVContent(cards, baseUrl)
@@ -182,7 +209,7 @@ export function downloadCSVFile(cards, baseUrl) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'NFC-50-Cards-Index.csv'
+  a.download = `NFC-Cards-${cards.length}-Manifest.csv`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)

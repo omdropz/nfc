@@ -117,9 +117,9 @@ function broadcastUpdate(pageId, page) {
 export const getPage = async (pageId) => {
   const target = (pageId || 'omdropz').toLowerCase()
 
-  // 1. Check if target is a Card ID (e.g. '001' to '050' or '1' to '50')
-  const isCardNumber = /^\d{1,3}$/.test(target)
-  const normalizedCardId = isCardNumber ? target.padStart(3, '0') : target
+  // 1. Check if target is a Card ID (e.g. '001', '050', '100', '500', '1000', etc.)
+  const isCardNumber = /^\d+$/.test(target)
+  const normalizedCardId = isCardNumber ? (target.length < 3 ? target.padStart(3, '0') : target) : target
 
   // Check Card in IndexedDB
   const cardRecord = await idbGetCard(normalizedCardId)

@@ -17,7 +17,6 @@ import {
   Trash2,
   Edit,
   Key,
-  ShieldAlert,
   Save,
   Upload,
   RefreshCw,
@@ -25,12 +24,21 @@ import {
   Archive,
   Eye,
   Smartphone,
+  ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Info,
+  Layers,
+  Sparkles,
 } from 'lucide-react'
 import {
   getAllCards,
   getAllBusinesses,
+  createCard,
+  bulkCreateCards,
+  deleteCardRecord,
+  getNextCardId,
   createBusiness,
   updateBusiness,
   linkCardToBusiness,
@@ -47,7 +55,6 @@ import {
   downloadAllCardsZip,
   downloadCSVFile,
 } from '../lib/qrHelper.js'
-import MiniPreview from '../components/MiniPreview.jsx'
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
@@ -60,18 +67,32 @@ export default function AdminDashboard() {
   const [businesses, setBusinesses] = useState([])
   const [loading, setLoading] = useState(true)
   const [copiedUrl, setCopiedUrl] = useState('')
+  const [toastMsg, setToastMsg] = useState('')
 
-  // Search & Filter
+  // Card Pagination & Filter
   const [cardSearch, setCardSearch] = useState('')
   const [cardFilter, setCardFilter] = useState('all') // 'all' | 'available' | 'assigned' | 'linked'
+  const [cardPage, setCardPage] = useState(1)
+  const [cardPageSize, setCardPageSize] = useState(25)
+
+  // Business Pagination & Filter
   const [bizSearch, setBizSearch] = useState('')
+  const [bizPage, setBizPage] = useState(1)
+  const bizPageSize = 12
 
   // Modal States
   const [editBizModal, setEditBizModal] = useState(null)
   const [pinModal, setPinModal] = useState(null)
-  const [linkCardModal, setLinkCardModal] = useState(null)
   const [qrModalCard, setQrModalCard] = useState(null)
   const [qrModalDataUrl, setQrModalDataUrl] = useState('')
+
+  // Bulk Card Creation Modal State
+  const [bulkModalOpen, setBulkModalOpen] = useState(false)
+  const [bulkQuantity, setBulkQuantity] = useState(50)
+  const [bulkCreating, setBulkCreating] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState(0)
+  const [creatingSingleCard, setCreatingSingleCard] = useState(false)
+  const [nextId, setNextId] = useState('001')
 
   // Create Business Form
   const [createCategory, setCreateCategory] = useState('Salon')
@@ -100,6 +121,11 @@ export default function AdminDashboard() {
   const [qrhubApiUrl, setQrhubApiUrl] = useState(localStorage.getItem('qrhub_api_url') || 'https://api.qrhub.com/v1')
   const [qrhubSaved, setQrhubSaved] = useState(false)
 
+  const showToast = (msg) => {
+    setToastMsg(msg)
+    setTimeout(() => setToastMsg(''), 4000)
+  }
+
   // Load Data
   const reloadData = async () => {
     setLoading(true)
@@ -108,6 +134,8 @@ export default function AdminDashboard() {
       const allBiz = await getAllBusinesses()
       setCards(allCards)
       setBusinesses(allBiz)
+      const nId = await getNextCardId()
+      setNextId(nId)
     } catch (err) {
       console.error('Error loading dashboard data:', err)
     } finally {
@@ -146,26 +174,37 @@ export default function AdminDashboard() {
   // Filtered Cards
   const filteredCards = useMemo(() => {
     return cards.filter((c) => {
-      const q = cardSearch.toLowerCase()
+      const q = cardSearch.toLowerCase().trim()
       const matchesSearch =
-        c.card_id.includes(q) ||
+        !q ||
+        String(c.card_id).toLowerCase().includes(q) ||
         (c.business_name && c.business_name.toLowerCase().includes(q)) ||
-        (c.business_id && c.business_id.toLowerCase().includes(q))
+        (c.business_id && String(c.business_id).toLowerCase().includes(q))
 
       if (!matchesSearch) return false
 
       if (cardFilter === 'available') return c.status === 'available' || !c.business_id
       if (cardFilter === 'assigned') return c.status === 'assigned'
       if (cardFilter === 'linked') return c.status === 'linked'
+      if (cardFilter === 'active') return c.status === 'active'
       return true
     })
   }, [cards, cardSearch, cardFilter])
 
-  // Overview Metrics
+  // Paginated Cards for smooth 60fps rendering with unlimited cards
+  const totalFilteredCards = filteredCards.length
+  const totalCardPages = Math.max(1, Math.ceil(totalFilteredCards / cardPageSize))
+  const paginatedCards = useMemo(() => {
+    const safePage = Math.min(cardPage, totalCardPages)
+    const start = (safePage - 1) * cardPageSize
+    return filteredCards.slice(start, start + cardPageSize)
+  }, [filteredCards, cardPage, totalCardPages, cardPageSize])
+
+  // Overview Metrics (Never hardcoded!)
   const metrics = useMemo(() => {
-    const totalCards = 50
+    const totalCards = cards.length
     const availableCards = cards.filter((c) => c.status === 'available' || !c.business_id).length
-    const assignedCards = cards.filter((c) => c.status === 'assigned' || c.status === 'linked').length
+    const assignedCards = cards.filter((c) => c.status === 'assigned' || c.status === 'linked' || c.status === 'active').length
     const totalBusinesses = businesses.length
     const linkedCards = cards.filter((c) => c.status === 'linked').length
     return {
@@ -177,7 +216,79 @@ export default function AdminDashboard() {
     }
   }, [cards, businesses])
 
-  // Handle Create Business Submit
+  // Filtered & Paginated Businesses
+  const filteredBusinesses = useMemo(() => {
+    const q = bizSearch.toLowerCase().trim()
+    return businesses.filter((b) => {
+      if (!q) return true
+      return (
+        (b.name && b.name.toLowerCase().includes(q)) ||
+        (b.category && b.category.toLowerCase().includes(q)) ||
+        (b.id && String(b.id).toLowerCase().includes(q))
+      )
+    })
+  }, [businesses, bizSearch])
+
+  const totalBizPages = Math.max(1, Math.ceil(filteredBusinesses.length / bizPageSize))
+  const paginatedBusinesses = useMemo(() => {
+    const safePage = Math.min(bizPage, totalBizPages)
+    const start = (safePage - 1) * bizPageSize
+    return filteredBusinesses.slice(start, start + bizPageSize)
+  }, [filteredBusinesses, bizPage, totalBizPages, bizPageSize])
+
+  // ── ACTION: Create Single New Card ──
+  const handleCreateSingleCard = async () => {
+    setCreatingSingleCard(true)
+    try {
+      const newCard = await createCard()
+      await reloadData()
+      showToast(`NFC Card #${newCard.card_id} created successfully!`)
+    } catch (err) {
+      alert('Error creating card.')
+    } finally {
+      setCreatingSingleCard(false)
+    }
+  }
+
+  // ── ACTION: Bulk Create Cards ──
+  const handleBulkCreateCards = async (e) => {
+    e.preventDefault()
+    const qty = parseInt(bulkQuantity, 10)
+    if (isNaN(qty) || qty <= 0) {
+      alert('Please enter a valid quantity (e.g. 10, 50, 100, 500).')
+      return
+    }
+
+    setBulkCreating(true)
+    setBulkProgress(0)
+    try {
+      const created = await bulkCreateCards(qty, DEFAULT_BASE_URL, (cur, tot) => {
+        setBulkProgress(Math.round((cur / tot) * 100))
+      })
+      await reloadData()
+      setBulkModalOpen(false)
+      showToast(`Successfully created ${created.length} new NFC cards (#${created[0].card_id} to #${created[created.length - 1].card_id})!`)
+    } catch (err) {
+      alert('Error during bulk card creation.')
+    } finally {
+      setBulkCreating(false)
+      setBulkProgress(0)
+    }
+  }
+
+  // ── ACTION: Delete Card Record ──
+  const handleDeleteCard = async (cardId) => {
+    if (!window.confirm(`Delete Card #${cardId}? Permanent URL will be deactivated.`)) return
+    try {
+      await deleteCardRecord(cardId)
+      await reloadData()
+      showToast(`Card #${cardId} deleted.`)
+    } catch {
+      alert('Error deleting card.')
+    }
+  }
+
+  // ── ACTION: Create Business Submit ──
   const handleCreateBusinessSubmit = async (e) => {
     e.preventDefault()
     if (!createName.trim()) {
@@ -208,7 +319,6 @@ export default function AdminDashboard() {
       await createBusiness(data, createCardId || null)
       await reloadData()
 
-      // Reset form
       setCreateName('')
       setCreateLogo('')
       setCreateReviewUrl('')
@@ -219,6 +329,7 @@ export default function AdminDashboard() {
       setCreateOwnerPhone('')
       setCreateOwnerPin('')
 
+      showToast('Business profile created successfully!')
       setActiveTab('businesses')
     } catch (err) {
       alert('Error creating business.')
@@ -227,7 +338,7 @@ export default function AdminDashboard() {
     }
   }
 
-  // Handle Link Card Submit
+  // ── ACTION: Link Card Submit ──
   const handleLinkCardSubmit = async (e) => {
     e.preventDefault()
     if (!selectedLinkCard || !selectedLinkBiz) {
@@ -241,6 +352,7 @@ export default function AdminDashboard() {
       await reloadData()
       setSelectedLinkCard('')
       setSelectedLinkBiz('')
+      showToast(`Card #${selectedLinkCard} linked successfully!`)
       setActiveTab('cards')
     } catch (err) {
       alert('Error linking card.')
@@ -249,29 +361,31 @@ export default function AdminDashboard() {
     }
   }
 
-  // Handle Unlink Card
+  // ── ACTION: Unlink Card ──
   const handleUnlink = async (cardId) => {
     if (!window.confirm(`Unlink Card #${cardId}? It will revert to Available state.`)) return
     try {
       await unlinkCard(cardId)
       await reloadData()
+      showToast(`Card #${cardId} unlinked.`)
     } catch {
       alert('Error unlinking card.')
     }
   }
 
-  // Handle Delete Business
+  // ── ACTION: Delete Business ──
   const handleDeleteBusiness = async (bizId, name) => {
     if (!window.confirm(`Delete business "${name}"? All attached cards will revert to Available.`)) return
     try {
       await deleteBusiness(bizId)
       await reloadData()
+      showToast(`Business "${name}" deleted.`)
     } catch {
       alert('Error deleting business.')
     }
   }
 
-  // Handle Save Edited Business
+  // ── ACTION: Save Edited Business (Strict: Details only) ──
   const handleSaveEditedBusiness = async (e) => {
     e.preventDefault()
     if (!editBizModal) return
@@ -291,12 +405,13 @@ export default function AdminDashboard() {
       })
       await reloadData()
       setEditBizModal(null)
+      showToast('Business details updated!')
     } catch {
       alert('Error updating business.')
     }
   }
 
-  // Handle Save Reset PIN
+  // ── ACTION: Save Reset PIN ──
   const handleSavePin = async (e) => {
     e.preventDefault()
     if (!pinModal) return
@@ -304,17 +419,24 @@ export default function AdminDashboard() {
       await resetOwnerPin(pinModal.businessId, pinModal.newPin, pinModal.newPhone)
       await reloadData()
       setPinModal(null)
-      alert('Owner PIN updated successfully.')
+      showToast('Owner PIN updated successfully.')
     } catch {
       alert('Error updating PIN.')
     }
   }
 
-  // Available cards list for dropdowns
   const availableCards = cards.filter((c) => c.status === 'available' || !c.business_id)
 
   return (
     <div className="min-h-screen bg-[#050507] text-white flex flex-col md:flex-row">
+      {/* Toast Notification */}
+      {toastMsg && (
+        <div className="fixed bottom-6 right-6 z-50 bg-[#161822] border border-[#a3e635] text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 text-xs font-semibold animate-bounce">
+          <CheckCircle2 size={16} className="text-[#a3e635]" />
+          <span>{toastMsg}</span>
+        </div>
+      )}
+
       {/* ── SIDEBAR NAVIGATION ── */}
       <aside className="w-full md:w-64 bg-[#08090e] border-r border-white/10 flex flex-col justify-between shrink-0">
         <div>
@@ -328,7 +450,7 @@ export default function AdminDashboard() {
                 <h1 className="text-sm font-black tracking-tight text-white">
                   OMDROPZ <span className="text-[#a3e635]">ADMIN</span>
                 </h1>
-                <p className="text-[10px] font-mono text-gray-400">NFC &amp; QR Management</p>
+                <p className="text-[10px] font-mono text-gray-400">Unlimited Card Manager</p>
               </div>
             </div>
           </div>
@@ -348,7 +470,10 @@ export default function AdminDashboard() {
             </button>
 
             <button
-              onClick={() => setActiveTab('cards')}
+              onClick={() => {
+                setActiveTab('cards')
+                setCardPage(1)
+              }}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
                 activeTab === 'cards'
                   ? 'bg-[#a3e635] text-black font-extrabold shadow-md'
@@ -359,15 +484,20 @@ export default function AdminDashboard() {
                 <CreditCard size={17} />
                 <span>All NFC Cards</span>
               </div>
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono ${
-                activeTab === 'cards' ? 'bg-black text-[#a3e635]' : 'bg-white/10 text-gray-300'
-              }`}>
-                50
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                  activeTab === 'cards' ? 'bg-black text-[#a3e635]' : 'bg-white/10 text-gray-300'
+                }`}
+              >
+                {metrics.totalCards}
               </span>
             </button>
 
             <button
-              onClick={() => setActiveTab('businesses')}
+              onClick={() => {
+                setActiveTab('businesses')
+                setBizPage(1)
+              }}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
                 activeTab === 'businesses'
                   ? 'bg-[#a3e635] text-black font-extrabold shadow-md'
@@ -378,10 +508,12 @@ export default function AdminDashboard() {
                 <Building2 size={17} />
                 <span>All Businesses</span>
               </div>
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono ${
-                activeTab === 'businesses' ? 'bg-black text-[#a3e635]' : 'bg-white/10 text-gray-300'
-              }`}>
-                {businesses.length}
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                  activeTab === 'businesses' ? 'bg-black text-[#a3e635]' : 'bg-white/10 text-gray-300'
+                }`}
+              >
+                {metrics.totalBusinesses}
               </span>
             </button>
 
@@ -394,7 +526,7 @@ export default function AdminDashboard() {
               }`}
             >
               <PlusCircle size={17} />
-              <span>Create New Business</span>
+              <span>Create Business</span>
             </button>
 
             <button
@@ -449,7 +581,7 @@ export default function AdminDashboard() {
         <header className="px-6 py-4 border-b border-white/10 bg-[#08090e]/70 backdrop-blur-md flex items-center justify-between sticky top-0 z-20">
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono uppercase tracking-widest text-[#a3e635] bg-[#a3e635]/10 px-2.5 py-1 rounded-md border border-[#a3e635]/20 font-bold">
-              ADMIN v2.0
+              SCALABLE SYSTEM
             </span>
             <h2 className="text-sm font-bold capitalize text-white">
               {activeTab.replace('-', ' ')}
@@ -457,6 +589,26 @@ export default function AdminDashboard() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Quick Create Card Button in Header */}
+            <button
+              onClick={handleCreateSingleCard}
+              disabled={creatingSingleCard}
+              className="bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold text-xs px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
+              title="Instantly generate next sequential card ID"
+            >
+              <PlusCircle size={14} />
+              <span>{creatingSingleCard ? 'Creating...' : '+ Create Card'}</span>
+            </button>
+
+            <button
+              onClick={() => setBulkModalOpen(true)}
+              className="bg-white/10 hover:bg-white/15 text-white font-bold text-xs px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer border border-white/10"
+              title="Bulk generate cards"
+            >
+              <Layers size={14} className="text-[#a3e635]" />
+              <span>Bulk Cards</span>
+            </button>
+
             <button
               onClick={reloadData}
               className="text-xs text-gray-400 hover:text-white p-2 rounded-lg border border-white/10 hover:bg-white/5 transition-colors cursor-pointer flex items-center gap-1.5"
@@ -465,13 +617,14 @@ export default function AdminDashboard() {
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
               <span className="hidden sm:inline">Refresh</span>
             </button>
+
             <Link
               to="/owner/login"
               target="_blank"
               className="text-xs bg-white/5 hover:bg-white/10 text-gray-300 px-3 py-1.5 rounded-lg border border-white/10 transition-colors flex items-center gap-1.5"
             >
               <Smartphone size={13} className="text-[#a3e635]" />
-              <span>Owner Portal</span>
+              <span className="hidden sm:inline">Owner Portal</span>
             </Link>
           </div>
         </header>
@@ -479,7 +632,7 @@ export default function AdminDashboard() {
         {/* Dynamic Content */}
         <div className="p-6 sm:p-8 space-y-8 flex-1">
           {/* ════════════════════════════════════════════════════════════
-              TAB 1: OVERVIEW
+              TAB 1: OVERVIEW (UNLIMITED SYSTEM)
               ════════════════════════════════════════════════════════════ */}
           {activeTab === 'overview' && (
             <div className="space-y-8">
@@ -491,7 +644,7 @@ export default function AdminDashboard() {
                     <CreditCard size={16} className="text-[#a3e635]" />
                   </div>
                   <div className="text-3xl font-black text-white font-mono">{metrics.totalCards}</div>
-                  <p className="text-[10px] text-gray-500 mt-1">Cards 001 to 050</p>
+                  <p className="text-[10px] text-gray-500 mt-1">Unlimited capacity</p>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-[#0e1017] border border-white/10 shadow-lg">
@@ -500,7 +653,7 @@ export default function AdminDashboard() {
                     <span className="w-2 h-2 rounded-full bg-emerald-400" />
                   </div>
                   <div className="text-3xl font-black text-emerald-400 font-mono">{metrics.availableCards}</div>
-                  <p className="text-[10px] text-gray-500 mt-1">Ready to program</p>
+                  <p className="text-[10px] text-gray-500 mt-1">Ready to assign / link</p>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-[#0e1017] border border-white/10 shadow-lg">
@@ -509,7 +662,7 @@ export default function AdminDashboard() {
                     <span className="w-2 h-2 rounded-full bg-[#a3e635]" />
                   </div>
                   <div className="text-3xl font-black text-[#a3e635] font-mono">{metrics.assignedCards}</div>
-                  <p className="text-[10px] text-gray-500 mt-1">Linked to businesses</p>
+                  <p className="text-[10px] text-gray-500 mt-1">Live customer cards</p>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-[#0e1017] border border-white/10 shadow-lg">
@@ -533,62 +686,66 @@ export default function AdminDashboard() {
 
               {/* Quick Actions Row */}
               <div className="p-6 rounded-3xl bg-[#0e1017] border border-white/10">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400 mb-4">
-                  Quick Management Actions
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400">
+                    Quick Management Actions
+                  </h3>
+                  <span className="text-xs font-mono text-[#a3e635]">Next Card ID: #{nextId}</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
                   <button
-                    onClick={() => setActiveTab('create-biz')}
-                    className="p-4 rounded-2xl bg-gradient-to-tr from-[#a3e635]/20 to-[#bef264]/10 border border-[#a3e635]/30 hover:border-[#a3e635] text-left transition-all cursor-pointer group"
+                    onClick={handleCreateSingleCard}
+                    disabled={creatingSingleCard}
+                    className="p-4 rounded-2xl bg-gradient-to-tr from-[#a3e635]/20 to-[#bef264]/10 border border-[#a3e635]/40 hover:border-[#a3e635] text-left transition-all cursor-pointer group disabled:opacity-50"
                   >
-                    <PlusCircle size={20} className="text-[#a3e635] mb-2 group-hover:scale-110 transition-transform" />
-                    <div className="font-bold text-white text-sm">Create Business</div>
-                    <p className="text-gray-400 mt-0.5">Register a brand &amp; assign card</p>
+                    <PlusCircle size={22} className="text-[#a3e635] mb-2 group-hover:scale-110 transition-transform" />
+                    <div className="font-bold text-white text-sm">Create Next Card (#{nextId})</div>
+                    <p className="text-gray-400 mt-0.5">1-click instant unique card creation</p>
                   </button>
 
                   <button
-                    onClick={() => setActiveTab('link-biz')}
+                    onClick={() => setBulkModalOpen(true)}
                     className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 hover:border-indigo-400 text-left transition-all cursor-pointer group"
                   >
-                    <Link2 size={20} className="text-indigo-400 mb-2 group-hover:scale-110 transition-transform" />
-                    <div className="font-bold text-white text-sm">Link Card</div>
-                    <p className="text-gray-400 mt-0.5">Attach card to existing client</p>
+                    <Layers size={22} className="text-indigo-400 mb-2 group-hover:scale-110 transition-transform" />
+                    <div className="font-bold text-white text-sm">Bulk Card Generator</div>
+                    <p className="text-gray-400 mt-0.5">Batch create 10, 50, 100, 500+ cards</p>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('create-biz')}
+                    className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 hover:border-emerald-400 text-left transition-all cursor-pointer group"
+                  >
+                    <Building2 size={22} className="text-emerald-400 mb-2 group-hover:scale-110 transition-transform" />
+                    <div className="font-bold text-white text-sm">Create New Business</div>
+                    <p className="text-gray-400 mt-0.5">Register brand and assign cards</p>
                   </button>
 
                   <button
                     onClick={() => downloadAllCardsZip(cards, DEFAULT_BASE_URL, setZipProgress)}
-                    className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 hover:border-emerald-400 text-left transition-all cursor-pointer group"
-                  >
-                    <Archive size={20} className="text-emerald-400 mb-2 group-hover:scale-110 transition-transform" />
-                    <div className="font-bold text-white text-sm">Download 50 QRs (ZIP)</div>
-                    <p className="text-gray-400 mt-0.5">
-                      {zipProgress ? `${zipProgress.current}/${zipProgress.total}` : 'Batch export PNGs'}
-                    </p>
-                  </button>
-
-                  <button
-                    onClick={() => downloadCSVFile(cards, DEFAULT_BASE_URL)}
                     className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 hover:border-amber-400 text-left transition-all cursor-pointer group"
                   >
-                    <FileSpreadsheet size={20} className="text-amber-400 mb-2 group-hover:scale-110 transition-transform" />
-                    <div className="font-bold text-white text-sm">Export Manifest CSV</div>
-                    <p className="text-gray-400 mt-0.5">For NTAG213 NFC chip writing</p>
+                    <Archive size={22} className="text-amber-400 mb-2 group-hover:scale-110 transition-transform" />
+                    <div className="font-bold text-white text-sm">Export All QRs (ZIP)</div>
+                    <p className="text-gray-400 mt-0.5">
+                      {zipProgress ? `${zipProgress.current}/${zipProgress.total}` : `Batch export ${cards.length} PNGs`}
+                    </p>
                   </button>
                 </div>
               </div>
 
-              {/* Multi-Card Architecture Explanation Box */}
+              {/* Architecture Info Box */}
               <div className="p-6 rounded-3xl bg-[#0e1017] border border-white/10 flex flex-col md:flex-row gap-6 items-start">
                 <div className="w-12 h-12 rounded-2xl bg-[#a3e635]/10 border border-[#a3e635]/30 flex items-center justify-center shrink-0 text-[#a3e635]">
-                  <Info size={24} />
+                  <Sparkles size={24} />
                 </div>
                 <div>
                   <h4 className="text-base font-bold text-white">
-                    Multi-Card Architecture Rules
+                    Fully Scalable Architecture (No Card Limits)
                   </h4>
                   <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                    A business client (e.g. a salon or restaurant) can order multiple PVC cards. For example, if a salon purchases 5 cards:
-                    create the salon once on Card <span className="text-[#a3e635] font-mono font-bold">001</span>, then use <span className="text-indigo-400 font-bold">Link Existing Business</span> to attach Cards <span className="text-indigo-400 font-mono font-bold">002, 003, 004, 005</span>. All 5 physical cards resolve seamlessly to that single business profile, with zero profile duplication.
+                    You can manufacture and program any number of PVC NFC cards whenever your business expands. Each physical card is assigned a permanent, unchanging URL (e.g. <span className="text-[#a3e635] font-mono">/c/001</span>, <span className="text-[#a3e635] font-mono">/c/051</span>, <span className="text-[#a3e635] font-mono">/c/500</span>). You can create unlimited client businesses, and one business can have multiple NFC cards assigned to it without duplicate profiles.
                   </p>
                 </div>
               </div>
@@ -596,38 +753,83 @@ export default function AdminDashboard() {
           )}
 
           {/* ════════════════════════════════════════════════════════════
-              TAB 2: ALL NFC CARDS (50 Cards)
+              TAB 2: ALL NFC CARDS (UNLIMITED & PAGINATED)
               ════════════════════════════════════════════════════════════ */}
           {activeTab === 'cards' && (
             <div className="space-y-4">
-              {/* Filter & Search Bar */}
-              <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-[#0e1017] p-4 rounded-2xl border border-white/10">
-                <div className="relative w-full sm:w-72">
-                  <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
-                  <input
-                    type="text"
-                    value={cardSearch}
-                    onChange={(e) => setCardSearch(e.target.value)}
-                    placeholder="Search by ID or business..."
-                    className="w-full bg-[#161822] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#a3e635] outline-none"
-                  />
+              {/* Header Action & Filter Bar */}
+              <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between bg-[#0e1017] p-4 rounded-2xl border border-white/10">
+                {/* Search & Status Filter */}
+                <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center flex-1">
+                  <div className="relative w-full sm:w-72">
+                    <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+                    <input
+                      type="text"
+                      value={cardSearch}
+                      onChange={(e) => {
+                        setCardSearch(e.target.value)
+                        setCardPage(1)
+                      }}
+                      placeholder="Search by ID or business..."
+                      className="w-full bg-[#161822] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#a3e635] outline-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                    <Filter size={14} className="text-gray-500 shrink-0 ml-1" />
+                    {['all', 'available', 'assigned', 'linked'].map((f) => (
+                      <button
+                        key={f}
+                        onClick={() => {
+                          setCardFilter(f)
+                          setCardPage(1)
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-all cursor-pointer whitespace-nowrap ${
+                          cardFilter === f
+                            ? 'bg-[#a3e635] text-black font-extrabold'
+                            : 'bg-[#161822] text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        {f}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <Filter size={14} className="text-gray-500" />
-                  {['all', 'available', 'assigned', 'linked'].map((f) => (
-                    <button
-                      key={f}
-                      onClick={() => setCardFilter(f)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-all cursor-pointer ${
-                        cardFilter === f
-                          ? 'bg-[#a3e635] text-black font-extrabold'
-                          : 'bg-[#161822] text-gray-400 hover:text-white'
-                      }`}
-                    >
-                      {f}
-                    </button>
-                  ))}
+                {/* Card Creation Buttons */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={handleCreateSingleCard}
+                    disabled={creatingSingleCard}
+                    className="bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold px-3.5 py-2 rounded-xl text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-md disabled:opacity-50"
+                  >
+                    <PlusCircle size={15} />
+                    <span>+ Create Card</span>
+                  </button>
+
+                  <button
+                    onClick={() => setBulkModalOpen(true)}
+                    className="bg-indigo-500 hover:bg-indigo-400 text-white font-bold px-3.5 py-2 rounded-xl text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
+                  >
+                    <Layers size={15} />
+                    <span>Bulk Generate</span>
+                  </button>
+
+                  <button
+                    onClick={() => downloadAllCardsZip(filteredCards, DEFAULT_BASE_URL, setZipProgress)}
+                    className="bg-white/10 hover:bg-white/15 text-white font-bold p-2 rounded-xl text-xs border border-white/10 transition-colors"
+                    title="Download ZIP for these cards"
+                  >
+                    <Archive size={15} />
+                  </button>
+
+                  <button
+                    onClick={() => downloadCSVFile(filteredCards, DEFAULT_BASE_URL)}
+                    className="bg-white/10 hover:bg-white/15 text-white font-bold p-2 rounded-xl text-xs border border-white/10 transition-colors"
+                    title="Export CSV Manifest"
+                  >
+                    <FileSpreadsheet size={15} />
+                  </button>
                 </div>
               </div>
 
@@ -646,142 +848,242 @@ export default function AdminDashboard() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
-                      {filteredCards.map((c) => {
-                        const isAssigned = Boolean(c.business_id)
-                        return (
-                          <tr key={c.card_id} className="hover:bg-white/[0.02] transition-colors">
-                            {/* Card ID */}
-                            <td className="py-3.5 px-4 font-mono font-black text-white">
-                              #{c.card_id}
-                            </td>
+                      {paginatedCards.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-gray-500">
+                            No cards matching your search or filter.
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedCards.map((c) => {
+                          const isAssigned = Boolean(c.business_id)
+                          return (
+                            <tr key={c.card_id} className="hover:bg-white/[0.02] transition-colors">
+                              {/* Card ID */}
+                              <td className="py-3.5 px-4 font-mono font-black text-white">
+                                #{c.card_id}
+                              </td>
 
-                            {/* Status Badge */}
-                            <td className="py-3.5 px-4">
-                              <span
-                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                                  c.status === 'available' || !isAssigned
-                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                                    : c.status === 'linked'
-                                    ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30'
-                                    : 'bg-[#a3e635]/10 text-[#a3e635] border border-[#a3e635]/30'
-                                }`}
-                              >
-                                <span className={`w-1.5 h-1.5 rounded-full ${
-                                  c.status === 'available' || !isAssigned
-                                    ? 'bg-emerald-400'
-                                    : c.status === 'linked'
-                                    ? 'bg-indigo-400'
-                                    : 'bg-[#a3e635]'
-                                }`} />
-                                {c.status || (isAssigned ? 'Assigned' : 'Available')}
-                              </span>
-                            </td>
-
-                            {/* Chip */}
-                            <td className="py-3.5 px-4 font-mono text-gray-400 text-[11px]">
-                              NTAG213
-                            </td>
-
-                            {/* Linked Business */}
-                            <td className="py-3.5 px-4">
-                              {isAssigned ? (
-                                <div>
-                                  <div className="font-bold text-white text-xs">
-                                    {c.business_name || 'Business'}
-                                  </div>
-                                  <div className="text-[10px] text-gray-500 font-mono">
-                                    {c.business_id}
-                                  </div>
-                                </div>
-                              ) : (
-                                <span className="text-gray-500 italic text-[11px]">
-                                  Unassigned / Ready
+                              {/* Status Badge */}
+                              <td className="py-3.5 px-4">
+                                <span
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                    c.status === 'available' || !isAssigned
+                                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                      : c.status === 'linked'
+                                      ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30'
+                                      : 'bg-[#a3e635]/10 text-[#a3e635] border border-[#a3e635]/30'
+                                  }`}
+                                >
+                                  <span
+                                    className={`w-1.5 h-1.5 rounded-full ${
+                                      c.status === 'available' || !isAssigned
+                                        ? 'bg-emerald-400'
+                                        : c.status === 'linked'
+                                        ? 'bg-indigo-400'
+                                        : 'bg-[#a3e635]'
+                                    }`}
+                                  />
+                                  {c.status || (isAssigned ? 'Assigned' : 'Available')}
                                 </span>
-                              )}
-                            </td>
+                              </td>
 
-                            {/* Permanent URL */}
-                            <td className="py-3.5 px-4 font-mono text-[11px]">
-                              <div className="flex items-center gap-2">
-                                <span className="text-gray-300 truncate max-w-[200px]">
-                                  {c.permanent_url}
-                                </span>
-                                <button
-                                  onClick={() => handleCopyUrl(c.permanent_url, c.card_id)}
-                                  className="text-gray-500 hover:text-[#a3e635] transition-colors cursor-pointer shrink-0"
-                                  title="Copy URL"
-                                >
-                                  {copiedUrl === c.card_id ? (
-                                    <CheckCircle2 size={13} className="text-[#a3e635]" />
-                                  ) : (
-                                    <Copy size={13} />
-                                  )}
-                                </button>
-                              </div>
-                            </td>
+                              {/* Chip */}
+                              <td className="py-3.5 px-4 font-mono text-gray-400 text-[11px]">
+                                NTAG213
+                              </td>
 
-                            {/* Actions */}
-                            <td className="py-3.5 px-4 text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                {/* QR Code modal trigger */}
-                                <button
-                                  onClick={() => handleShowQrModal(c)}
-                                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors cursor-pointer"
-                                  title="View QR Code"
-                                >
-                                  <QrCode size={14} />
-                                </button>
-
-                                {/* Download QR PNG */}
-                                <button
-                                  onClick={() => downloadSingleQRPNG(c.permanent_url, c.card_id)}
-                                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors cursor-pointer"
-                                  title="Download High-Res PNG QR"
-                                >
-                                  <Download size={14} />
-                                </button>
-
-                                {/* Open Public Page */}
-                                <Link
-                                  to={`/c/${c.card_id}`}
-                                  target="_blank"
-                                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors"
-                                  title="Open Public Card"
-                                >
-                                  <ExternalLink size={14} />
-                                </Link>
-
-                                {/* Setup / Link / Unlink */}
+                              {/* Linked Business */}
+                              <td className="py-3.5 px-4">
                                 {isAssigned ? (
-                                  <button
-                                    onClick={() => handleUnlink(c.card_id)}
-                                    className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors cursor-pointer"
-                                    title="Unlink Card"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
+                                  <div>
+                                    <div className="font-bold text-white text-xs">
+                                      {c.business_name || 'Business'}
+                                    </div>
+                                    <div className="text-[10px] text-gray-500 font-mono">
+                                      {c.business_id}
+                                    </div>
+                                  </div>
                                 ) : (
-                                  <Link
-                                    to={`/setup/${c.card_id}`}
-                                    className="px-2.5 py-1 rounded-lg bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold text-[10px] uppercase tracking-wider transition-all"
-                                  >
-                                    Setup
-                                  </Link>
+                                  <span className="text-gray-500 italic text-[11px]">
+                                    Unassigned / Ready
+                                  </span>
                                 )}
-                              </div>
-                            </td>
-                          </tr>
-                        )
-                      })}
+                              </td>
+
+                              {/* Permanent URL */}
+                              <td className="py-3.5 px-4 font-mono text-[11px]">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-gray-300 truncate max-w-[180px] sm:max-w-[240px]">
+                                    {c.permanent_url}
+                                  </span>
+                                  <button
+                                    onClick={() => handleCopyUrl(c.permanent_url, c.card_id)}
+                                    className="text-gray-500 hover:text-[#a3e635] transition-colors cursor-pointer shrink-0"
+                                    title="Copy URL"
+                                  >
+                                    {copiedUrl === c.card_id ? (
+                                      <CheckCircle2 size={13} className="text-[#a3e635]" />
+                                    ) : (
+                                      <Copy size={13} />
+                                    )}
+                                  </button>
+                                </div>
+                              </td>
+
+                              {/* Actions */}
+                              <td className="py-3.5 px-4 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {/* QR Modal */}
+                                  <button
+                                    onClick={() => handleShowQrModal(c)}
+                                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors cursor-pointer"
+                                    title="View QR Code"
+                                  >
+                                    <QrCode size={14} />
+                                  </button>
+
+                                  {/* Download PNG */}
+                                  <button
+                                    onClick={() => downloadSingleQRPNG(c.permanent_url, c.card_id)}
+                                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors cursor-pointer"
+                                    title="Download High-Res PNG QR"
+                                  >
+                                    <Download size={14} />
+                                  </button>
+
+                                  {/* Open Public Page */}
+                                  <Link
+                                    to={`/c/${c.card_id}`}
+                                    target="_blank"
+                                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors"
+                                    title="Open Public Card"
+                                  >
+                                    <ExternalLink size={14} />
+                                  </Link>
+
+                                  {/* Setup / Unlink / Delete */}
+                                  {isAssigned ? (
+                                    <button
+                                      onClick={() => handleUnlink(c.card_id)}
+                                      className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors cursor-pointer"
+                                      title="Unlink Card"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  ) : (
+                                    <>
+                                      <Link
+                                        to={`/setup/${c.card_id}`}
+                                        className="px-2 py-1 rounded-lg bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold text-[10px] uppercase tracking-wider transition-all"
+                                      >
+                                        Setup
+                                      </Link>
+                                      <button
+                                        onClick={() => handleDeleteCard(c.card_id)}
+                                        className="p-1.5 rounded-lg bg-white/5 hover:bg-rose-500/10 text-gray-400 hover:text-rose-400 transition-colors cursor-pointer"
+                                        title="Delete Card Record"
+                                      >
+                                        <Trash2 size={13} />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })
+                      )}
                     </tbody>
                   </table>
+                </div>
+
+                {/* ── PAGINATION CONTROLS ── */}
+                <div className="p-4 bg-[#12141d] border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
+                  <div className="flex items-center gap-3 text-gray-400">
+                    <span>
+                      Showing{' '}
+                      <span className="font-bold text-white font-mono">
+                        {totalFilteredCards === 0 ? 0 : (cardPage - 1) * cardPageSize + 1}
+                      </span>{' '}
+                      to{' '}
+                      <span className="font-bold text-white font-mono">
+                        {Math.min(cardPage * cardPageSize, totalFilteredCards)}
+                      </span>{' '}
+                      of{' '}
+                      <span className="font-bold text-white font-mono">
+                        {totalFilteredCards}
+                      </span>{' '}
+                      cards
+                    </span>
+
+                    <span className="text-gray-600">•</span>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px]">Per page:</span>
+                      <select
+                        value={cardPageSize}
+                        onChange={(e) => {
+                          setCardPageSize(Number(e.target.value))
+                          setCardPage(1)
+                        }}
+                        className="bg-[#1b1e2c] border border-white/10 rounded-lg px-2 py-1 text-white font-mono text-[11px] outline-none"
+                      >
+                        <option value={25}>25</option>
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                        <option value={250}>250</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Navigation Buttons */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setCardPage(1)}
+                      disabled={cardPage <= 1}
+                      className="p-1.5 rounded-lg border border-white/10 text-gray-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                      title="First Page"
+                    >
+                      <ChevronsLeft size={16} />
+                    </button>
+                    <button
+                      onClick={() => setCardPage((p) => Math.max(1, p - 1))}
+                      disabled={cardPage <= 1}
+                      className="p-1.5 rounded-lg border border-white/10 text-gray-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                      title="Previous Page"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+
+                    <span className="px-3 py-1 font-mono text-xs text-white font-bold bg-white/5 rounded-lg border border-white/10">
+                      Page {cardPage} of {totalCardPages}
+                    </span>
+
+                    <button
+                      onClick={() => setCardPage((p) => Math.min(totalCardPages, p + 1))}
+                      disabled={cardPage >= totalCardPages}
+                      className="p-1.5 rounded-lg border border-white/10 text-gray-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                      title="Next Page"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                    <button
+                      onClick={() => setCardPage(totalCardPages)}
+                      disabled={cardPage >= totalCardPages}
+                      className="p-1.5 rounded-lg border border-white/10 text-gray-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                      title="Last Page"
+                    >
+                      <ChevronsRight size={16} />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
           {/* ════════════════════════════════════════════════════════════
-              TAB 3: ALL BUSINESSES
+              TAB 3: ALL BUSINESSES (UNLIMITED & PAGINATED)
               ════════════════════════════════════════════════════════════ */}
           {activeTab === 'businesses' && (
             <div className="space-y-6">
@@ -791,7 +1093,10 @@ export default function AdminDashboard() {
                   <input
                     type="text"
                     value={bizSearch}
-                    onChange={(e) => setBizSearch(e.target.value)}
+                    onChange={(e) => {
+                      setBizSearch(e.target.value)
+                      setBizPage(1)
+                    }}
                     placeholder="Search businesses..."
                     className="w-full bg-[#161822] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#a3e635] outline-none"
                   />
@@ -806,12 +1111,12 @@ export default function AdminDashboard() {
                 </button>
               </div>
 
-              {businesses.length === 0 ? (
+              {filteredBusinesses.length === 0 ? (
                 <div className="p-12 text-center bg-[#0e1017] rounded-3xl border border-white/10">
                   <Building2 size={36} className="mx-auto text-gray-600 mb-3" />
-                  <h3 className="text-base font-bold text-white">No Businesses Yet</h3>
+                  <h3 className="text-base font-bold text-white">No Businesses Found</h3>
                   <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
-                    Create your first business client to begin linking NFC cards.
+                    Create a new business client to start linking NFC cards.
                   </p>
                   <button
                     onClick={() => setActiveTab('create-biz')}
@@ -821,17 +1126,9 @@ export default function AdminDashboard() {
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {businesses
-                    .filter((b) => {
-                      const q = bizSearch.toLowerCase()
-                      return (
-                        (b.name && b.name.toLowerCase().includes(q)) ||
-                        (b.category && b.category.toLowerCase().includes(q)) ||
-                        (b.id && b.id.toLowerCase().includes(q))
-                      )
-                    })
-                    .map((b) => (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    {paginatedBusinesses.map((b) => (
                       <div
                         key={b.id}
                         className="bg-[#0e1017] border border-white/10 rounded-3xl p-6 shadow-xl flex flex-col justify-between hover:border-white/20 transition-all"
@@ -879,7 +1176,7 @@ export default function AdminDashboard() {
                                 {b.linkedCards?.length || 0} Card{b.linkedCards?.length === 1 ? '' : 's'}
                               </span>
                             </div>
-                            <div className="flex flex-wrap gap-1.5">
+                            <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
                               {b.linkedCards && b.linkedCards.length > 0 ? (
                                 b.linkedCards.map((cid) => (
                                   <Link
@@ -951,7 +1248,33 @@ export default function AdminDashboard() {
                         </div>
                       </div>
                     ))}
-                </div>
+                  </div>
+
+                  {/* Businesses Pagination */}
+                  {totalBizPages > 1 && (
+                    <div className="flex items-center justify-between p-4 bg-[#0e1017] rounded-2xl border border-white/10 text-xs">
+                      <span className="text-gray-400 font-mono">
+                        Page {bizPage} of {totalBizPages} ({filteredBusinesses.length} total)
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setBizPage((p) => Math.max(1, p - 1))}
+                          disabled={bizPage <= 1}
+                          className="px-3 py-1.5 rounded-lg border border-white/10 text-gray-300 disabled:opacity-30"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          onClick={() => setBizPage((p) => Math.min(totalBizPages, p + 1))}
+                          disabled={bizPage >= totalBizPages}
+                          className="px-3 py-1.5 rounded-lg border border-white/10 text-gray-300 disabled:opacity-30"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -964,13 +1287,13 @@ export default function AdminDashboard() {
               <div className="bg-[#0e1017] border border-white/10 rounded-3xl p-6 sm:p-8 shadow-xl">
                 <div className="mb-6">
                   <span className="text-xs font-mono uppercase tracking-widest text-[#a3e635] bg-[#a3e635]/10 px-2.5 py-1 rounded-md border border-[#a3e635]/20 font-bold">
-                    New Brand Registration
+                    Brand Creation
                   </span>
                   <h3 className="text-2xl font-black text-white mt-2">
                     Create New Business Profile
                   </h3>
                   <p className="text-xs text-gray-400 mt-1">
-                    Configure business details and optionally attach an available NFC card.
+                    Configure business details and attach an available NFC card.
                   </p>
                 </div>
 
@@ -1199,7 +1522,7 @@ export default function AdminDashboard() {
                   Link Card to Existing Business
                 </h3>
                 <p className="text-xs text-gray-400 mt-1 mb-6 leading-relaxed">
-                  Use this tool when a client purchases multiple physical cards. Linking additional cards ensures every card resolves to the identical business profile.
+                  Attach newly created or available cards to any existing client business. Every card linked to the same business will open the identical landing page.
                 </p>
 
                 <form onSubmit={handleLinkCardSubmit} className="space-y-5 text-xs">
@@ -1215,7 +1538,7 @@ export default function AdminDashboard() {
                       <option value="">-- Choose unassigned card --</option>
                       {availableCards.map((c) => (
                         <option key={c.card_id} value={c.card_id}>
-                          Card #{c.card_id} (Permanent URL: /c/{c.card_id})
+                          Card #{c.card_id} (URL: /c/{c.card_id})
                         </option>
                       ))}
                     </select>
@@ -1273,7 +1596,7 @@ export default function AdminDashboard() {
                       Physical Card Manufacturing &amp; QR Export
                     </h3>
                     <p className="text-xs text-gray-400 mt-1">
-                      Download individual high-res PNGs or batch export all 50 QR codes and programming CSV for PVC card production.
+                      Download individual high-res PNGs or batch export QR codes and programming CSV for PVC card production.
                     </p>
                   </div>
 
@@ -1286,7 +1609,7 @@ export default function AdminDashboard() {
                       <span>
                         {zipProgress
                           ? `Packaging (${zipProgress.current}/${zipProgress.total})...`
-                          : 'Download All 50 QRs (ZIP)'}
+                          : `Download All ${cards.length} QRs (ZIP)`}
                       </span>
                     </button>
 
@@ -1302,9 +1625,11 @@ export default function AdminDashboard() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
                   <div className="p-4 rounded-2xl bg-[#141620] border border-white/10">
-                    <span className="text-gray-400">Total Cards in Batch:</span>
-                    <div className="text-2xl font-black text-white font-mono mt-1">50 Cards</div>
-                    <span className="text-[10px] text-gray-500">Cards 001 to 050</span>
+                    <span className="text-gray-400">Total Cards in System:</span>
+                    <div className="text-2xl font-black text-white font-mono mt-1">
+                      {cards.length} Cards
+                    </div>
+                    <span className="text-[10px] text-gray-500">Fully expandable</span>
                   </div>
                   <div className="p-4 rounded-2xl bg-[#141620] border border-white/10">
                     <span className="text-gray-400">NFC Chip Target:</span>
@@ -1335,7 +1660,7 @@ export default function AdminDashboard() {
                       QR Hub API Integration &amp; Dynamic QR Sync
                     </h3>
                     <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                      QR Hub allows remote redirection syncing for physical dynamic QR codes. If you have an active QR Hub plan and API key, enter your credentials below. The platform maintains permanent URLs (<span className="font-mono text-[#a3e635]">/c/001</span> to <span className="font-mono text-[#a3e635]">/c/050</span>) so that physical PVC cards remain 100% functional even if external API connectivity changes.
+                      QR Hub allows remote redirection syncing for physical dynamic QR codes. If you have an active QR Hub plan and API key, enter your credentials below. The platform maintains permanent URLs (<span className="font-mono text-[#a3e635]">/c/:cardId</span>) so that physical PVC cards remain 100% functional even if external API connectivity changes.
                     </p>
                   </div>
                 </div>
@@ -1346,7 +1671,7 @@ export default function AdminDashboard() {
                     <span>Current Architecture Status</span>
                   </h4>
                   <ul className="space-y-1.5 text-gray-400 list-disc list-inside">
-                    <li>All 50 physical cards are mapped to permanent URLs: <code className="text-white">https://nfc-sage.vercel.app/c/:cardId</code></li>
+                    <li>All cards are mapped to permanent URLs: <code className="text-white">https://nfc-sage.vercel.app/c/:cardId</code></li>
                     <li>NFC chips and QR codes use the exact same permanent URL structure.</li>
                     <li>Card assignments change dynamically in your database without altering physical QR codes or chips.</li>
                   </ul>
@@ -1403,6 +1728,126 @@ export default function AdminDashboard() {
         </div>
       </main>
 
+      {/* ── MODAL: BULK CREATE CARDS (Any quantity: 10, 50, 100, 500...) ── */}
+      {bulkModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[#0e1017] border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                  <Layers size={18} />
+                </div>
+                <h3 className="text-base font-bold text-white">Bulk Card Generator</h3>
+              </div>
+              <button
+                onClick={() => setBulkModalOpen(false)}
+                className="text-gray-400 hover:text-white p-1 rounded-lg text-lg"
+              >
+                &times;
+              </button>
+            </div>
+
+            <form onSubmit={handleBulkCreateCards} className="space-y-4 text-xs">
+              <div>
+                <label className="font-semibold text-gray-300 block mb-1.5 uppercase tracking-wider text-[11px]">
+                  Quantity to Generate *
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={5000}
+                  value={bulkQuantity}
+                  onChange={(e) => setBulkQuantity(e.target.value)}
+                  className="w-full bg-[#161822] border border-white/10 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:border-indigo-400 outline-none"
+                />
+              </div>
+
+              {/* Quick Presets */}
+              <div>
+                <span className="text-[10px] text-gray-400 uppercase font-semibold block mb-1.5">
+                  Quick Presets:
+                </span>
+                <div className="flex gap-2">
+                  {[10, 50, 100, 250, 500].map((q) => (
+                    <button
+                      key={q}
+                      type="button"
+                      onClick={() => setBulkQuantity(q)}
+                      className={`flex-1 py-1.5 rounded-lg border text-xs font-mono transition-all cursor-pointer ${
+                        Number(bulkQuantity) === q
+                          ? 'bg-indigo-500 text-white border-indigo-400 font-bold'
+                          : 'bg-[#161822] text-gray-400 border-white/10 hover:text-white'
+                      }`}
+                    >
+                      +{q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ID Range Preview */}
+              <div className="p-3.5 rounded-2xl bg-[#141620] border border-white/10 space-y-1.5">
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-gray-400">Starting Card ID:</span>
+                  <span className="font-mono text-[#a3e635] font-bold">#{nextId}</span>
+                </div>
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-gray-400">Ending Card ID:</span>
+                  <span className="font-mono text-indigo-400 font-bold">
+                    #{formatCardId(parseInt(nextId, 10) + Math.max(1, parseInt(bulkQuantity, 10) || 1) - 1)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-[11px] pt-1 border-t border-white/5">
+                  <span className="text-gray-400">Target Chip:</span>
+                  <span className="font-mono text-gray-300">NTAG213 (144B)</span>
+                </div>
+              </div>
+
+              {/* Progress bar during generation */}
+              {bulkCreating && (
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-[11px] text-gray-400">
+                    <span>Generating Cards...</span>
+                    <span className="font-mono font-bold text-[#a3e635]">{bulkProgress}%</span>
+                  </div>
+                  <div className="w-full bg-[#161822] rounded-full h-2 overflow-hidden">
+                    <div
+                      className="bg-[#a3e635] h-full transition-all duration-200"
+                      style={{ width: `${bulkProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-3 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBulkModalOpen(false)}
+                  disabled={bulkCreating}
+                  className="px-4 py-2 rounded-xl text-gray-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={bulkCreating}
+                  className="bg-indigo-500 hover:bg-indigo-400 text-white font-extrabold px-6 py-2.5 rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {bulkCreating ? (
+                    <span>Generating {bulkQuantity} Cards...</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={15} />
+                      <span>Generate {bulkQuantity} Cards</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* ── MODAL: EDIT BUSINESS DETAILS (STRICT: Name, Logo, Review, WhatsApp, Instagram, Toggles ONLY) ── */}
       {editBizModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1411,7 +1856,7 @@ export default function AdminDashboard() {
               <h3 className="text-lg font-black text-white">Edit Business Details</h3>
               <button
                 onClick={() => setEditBizModal(null)}
-                className="text-gray-400 hover:text-white p-1 rounded-lg"
+                className="text-gray-400 hover:text-white p-1 rounded-lg text-lg"
               >
                 &times;
               </button>
