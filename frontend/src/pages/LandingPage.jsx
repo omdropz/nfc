@@ -317,7 +317,7 @@ export default function LandingPage({ defaultPageId = 'omdropz' }) {
             <div className="flex justify-between items-center text-white/60">
               <span className="text-[11px]">Permanent URL:</span>
               <span className="font-mono text-[10px] text-white/90 truncate max-w-[160px]">
-                /p/{pageId}
+                /c/{pageId}
               </span>
             </div>
             <div className="flex justify-between items-center text-white/60">
@@ -331,7 +331,7 @@ export default function LandingPage({ defaultPageId = 'omdropz' }) {
 
           {/* Assign / Claim Button */}
           <button
-            onClick={() => navigate('/admin/login')}
+            onClick={() => navigate(`/setup/${pageId}`)}
             className="mt-6 w-full py-3.5 px-4 rounded-2xl bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold text-sm shadow-[0_10px_30px_rgba(163,230,53,0.3)] transition-all flex items-center justify-center gap-2 active:scale-95 z-20 relative cursor-pointer"
           >
             <Zap size={16} />

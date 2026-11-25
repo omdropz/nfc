@@ -1,5 +1,12 @@
 import axios from 'axios'
-import { idbGetPage, idbSavePage, idbListPages, idbDeletePage } from './idb.js'
+import {
+  idbGetPage,
+  idbSavePage,
+  idbListPages,
+  idbDeletePage,
+  idbGetCard,
+  idbGetBusiness,
+} from './idb.js'
 import { getSupabaseClient } from './supabase.js'
 
 const api = axios.create({
@@ -110,7 +117,96 @@ function broadcastUpdate(pageId, page) {
 export const getPage = async (pageId) => {
   const target = (pageId || 'omdropz').toLowerCase()
 
-  // 1. Try Backend API
+  // 1. Check if target is a Card ID (e.g. '001' to '050' or '1' to '50')
+  const isCardNumber = /^\d{1,3}$/.test(target)
+  const normalizedCardId = isCardNumber ? target.padStart(3, '0') : target
+
+  // Check Card in IndexedDB
+  const cardRecord = await idbGetCard(normalizedCardId)
+  if (cardRecord) {
+    if (cardRecord.business_id) {
+      // Resolve linked business!
+      const business = await idbGetBusiness(cardRecord.business_id)
+      if (business) {
+        return {
+          success: true,
+          page: {
+            page_id: normalizedCardId,
+            card_id: normalizedCardId,
+            card_number: normalizedCardId,
+            business_id: business.id,
+            business_name: business.name,
+            welcome_message: business.welcome_message || '',
+            footer_brand: 'OMDROPZ',
+            logo_url: business.logo_url || '',
+            google_review_enabled: business.google_review_enabled !== false,
+            google_review_url: business.google_review_url || '',
+            google_review_text: business.google_review_text || 'Google Review',
+            whatsapp_enabled: business.whatsapp_enabled !== false,
+            whatsapp_number: business.whatsapp_number || '',
+            whatsapp_message: business.whatsapp_message || 'Hello! I found your NFC card.',
+            whatsapp_text: business.whatsapp_text || 'Chat on WhatsApp',
+            instagram_enabled: business.instagram_enabled !== false,
+            instagram_url: business.instagram_url || '',
+            instagram_text: business.instagram_text || 'Follow on Instagram',
+            bg_color: '#050507',
+            btn_color: '#a3e635',
+            status: cardRecord.status || 'assigned',
+          },
+        }
+      }
+    } else {
+      // Unassigned / Available Card
+      return {
+        success: true,
+        page: {
+          page_id: normalizedCardId,
+          card_id: normalizedCardId,
+          card_number: normalizedCardId,
+          status: 'available',
+          is_bulk: true,
+          business_name: '',
+          welcome_message: '',
+          footer_brand: 'OMDROPZ',
+          google_review_enabled: true,
+          whatsapp_enabled: true,
+          instagram_enabled: true,
+          bg_color: '#050507',
+          btn_color: '#a3e635',
+        },
+      }
+    }
+  }
+
+  // Check if target is directly a Business ID
+  const directBusiness = await idbGetBusiness(target)
+  if (directBusiness) {
+    return {
+      success: true,
+      page: {
+        page_id: directBusiness.id,
+        business_id: directBusiness.id,
+        business_name: directBusiness.name,
+        welcome_message: directBusiness.welcome_message || '',
+        footer_brand: 'OMDROPZ',
+        logo_url: directBusiness.logo_url || '',
+        google_review_enabled: directBusiness.google_review_enabled !== false,
+        google_review_url: directBusiness.google_review_url || '',
+        google_review_text: directBusiness.google_review_text || 'Google Review',
+        whatsapp_enabled: directBusiness.whatsapp_enabled !== false,
+        whatsapp_number: directBusiness.whatsapp_number || '',
+        whatsapp_message: directBusiness.whatsapp_message || 'Hello! I found your NFC card.',
+        whatsapp_text: directBusiness.whatsapp_text || 'Chat on WhatsApp',
+        instagram_enabled: directBusiness.instagram_enabled !== false,
+        instagram_url: directBusiness.instagram_url || '',
+        instagram_text: directBusiness.instagram_text || 'Follow on Instagram',
+        bg_color: '#050507',
+        btn_color: '#a3e635',
+      },
+    }
+  }
+
+  // 2. Try Backend API
   try {
     const res = await api.get(`/pages/${target}`)
     if (res.data?.page) {
@@ -119,7 +215,7 @@ export const getPage = async (pageId) => {
     }
   } catch {}
 
-  // 2. Try Supabase Database (if configured)
+  // 3. Try Supabase Database (if configured)
   const supabase = getSupabaseClient()
   if (supabase) {
     try {
@@ -135,15 +231,15 @@ export const getPage = async (pageId) => {
     } catch {}
   }
 
-  // 3. Try IndexedDB Persistent Database
+  // 4. Try IndexedDB Persistent Database legacy store
   const idbPage = await idbGetPage(target)
   if (idbPage) {
     return { success: true, page: idbPage }
   }
 
-  // 4. Auto-provision bulk card records (001 to 050) in Available state
-  if (/^\d{1,3}$/.test(target)) {
-    const cardId = target.padStart(3, '0')
+  // 5. Auto-provision bulk card records (001 to 050) in Available state if not in store yet
+  if (isCardNumber) {
+    const cardId = normalizedCardId
     const availableCard = {
       id: `card-${cardId}`,
       page_id: cardId,

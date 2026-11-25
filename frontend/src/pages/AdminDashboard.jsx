@@ -1,1105 +1,1653 @@
-import React, { useEffect, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import React, { useState, useEffect, useMemo } from 'react'
+import { useNavigate, Link } from 'react-router-dom'
 import {
-  LogOut, Save, Plus, Trash2, Edit2, ChevronDown, Upload,
-  Building2, Share2, Palette, LayoutDashboard, X, Check,
-  Smartphone, AlertCircle, Loader2, ExternalLink, RotateCcw, Database, QrCode,
+  LayoutDashboard,
+  CreditCard,
+  Building2,
+  PlusCircle,
+  Link2,
+  QrCode,
+  LogOut,
+  Search,
+  Filter,
+  CheckCircle2,
+  Copy,
+  Download,
+  ExternalLink,
+  Trash2,
+  Edit,
+  Key,
+  ShieldAlert,
+  Save,
+  Upload,
+  RefreshCw,
+  FileSpreadsheet,
+  Archive,
+  Eye,
+  Smartphone,
+  ChevronRight,
+  Info,
 } from 'lucide-react'
 import {
-  listPages, getPage, createPage, updatePage, deletePage,
-  verifyAuth, logout,
-} from '../lib/api.js'
-import api from '../lib/api.js'
-import ToggleSwitch from '../components/ToggleSwitch.jsx'
-import ColorPicker from '../components/ColorPicker.jsx'
+  getAllCards,
+  getAllBusinesses,
+  createBusiness,
+  updateBusiness,
+  linkCardToBusiness,
+  unlinkCard,
+  deleteBusiness,
+  resetOwnerPin,
+  formatCardId,
+  BUSINESS_CATEGORIES,
+  DEFAULT_BASE_URL,
+} from '../lib/businessStore.js'
+import {
+  generateQRDataURL,
+  downloadSingleQRPNG,
+  downloadAllCardsZip,
+  downloadCSVFile,
+} from '../lib/qrHelper.js'
 import MiniPreview from '../components/MiniPreview.jsx'
-import Toast from '../components/Toast.jsx'
-import LoadingSpinner from '../components/LoadingSpinner.jsx'
-import BulkCardsManager from '../components/BulkCardsManager.jsx'
-
-const DEFAULT_FORM = {
-  business_name: '',
-  welcome_message: '',
-  footer_brand: 'OMDROPZ',
-  logo_url: '',
-  google_review_enabled: false,
-  google_review_url: '',
-  google_review_text: 'Leave a Google Review',
-  whatsapp_enabled: false,
-  whatsapp_number: '',
-  whatsapp_message: 'Hi! I found your NFC card.',
-  whatsapp_text: 'Chat on WhatsApp',
-  instagram_enabled: false,
-  instagram_url: '',
-  instagram_text: 'Follow on Instagram',
-  bg_color: '#6366f1',
-  btn_color: '#6366f1',
-  btn_style: 'solid',
-  text_color: '#ffffff',
-  font: 'Inter',
-  border_radius: 'rounded-2xl',
-  layout: 'centered',
-  theme: 'light',
-}
-
-const TABS = [
-  { id: 'bulk-cards', label: 'Bulk QR Cards (50)', icon: QrCode },
-  { id: 'business', label: 'Business Profile', icon: Building2 },
-  { id: 'social', label: 'Social Links', icon: Share2 },
-  { id: 'design', label: 'Design & Style', icon: Palette },
-  { id: 'database', label: 'Database', icon: Database },
-  { id: 'pages', label: 'All Pages', icon: LayoutDashboard },
-]
-
-const FONTS = ['Inter', 'Poppins', 'Roboto', 'Montserrat', 'Raleway']
-const RADII = [
-  { value: 'rounded-lg', label: 'Small' },
-  { value: 'rounded-2xl', label: 'Medium' },
-  { value: 'rounded-3xl', label: 'Large' },
-  { value: 'rounded-full', label: 'Pill' },
-]
-
-function SectionLabel({ children }) {
-  return (
-    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 mt-5 first:mt-0">
-      {children}
-    </p>
-  )
-}
-
-function FieldGroup({ label, children }) {
-  return (
-    <div className="flex flex-col gap-1.5 mb-4">
-      {label && <label className="text-sm font-medium text-gray-700">{label}</label>}
-      {children}
-    </div>
-  )
-}
-
-function inputCls(extra = '') {
-  return `border border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-indigo-500 outline-none w-full text-sm transition-shadow ${extra}`
-}
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
 
-  const [authLoading, setAuthLoading] = useState(true)
-  const [pages, setPages] = useState([])
-  const [selectedPageId, setSelectedPageId] = useState(null)
-  const [formData, setFormData] = useState({ ...DEFAULT_FORM })
-  const [activeTab, setActiveTab] = useState('bulk-cards')
-  const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState({ visible: false, message: '', type: 'success' })
-  const [logoFile, setLogoFile] = useState(null)
-  const [logoPreview, setLogoPreview] = useState(null)
-  const [uploadingLogo, setUploadingLogo] = useState(false)
+  // Navigation tab
+  const [activeTab, setActiveTab] = useState('overview') // 'overview' | 'cards' | 'businesses' | 'create-biz' | 'link-biz' | 'qr-hub'
 
-  // Database settings
-  const [supabaseUrl, setSupabaseUrl] = useState(localStorage.getItem('nfc_supabase_url') || '')
-  const [supabaseKey, setSupabaseKey] = useState(localStorage.getItem('nfc_supabase_anon_key') || '')
+  // Data
+  const [cards, setCards] = useState([])
+  const [businesses, setBusinesses] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [copiedUrl, setCopiedUrl] = useState('')
 
-  // Pages management
-  const [showCreateModal, setShowCreateModal] = useState(false)
-  const [newPageId, setNewPageId] = useState('')
-  const [newBusinessName, setNewBusinessName] = useState('')
-  const [createError, setCreateError] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [deleteConfirm, setDeleteConfirm] = useState(null)
-  const [deleting, setDeleting] = useState(false)
+  // Search & Filter
+  const [cardSearch, setCardSearch] = useState('')
+  const [cardFilter, setCardFilter] = useState('all') // 'all' | 'available' | 'assigned' | 'linked'
+  const [bizSearch, setBizSearch] = useState('')
 
-  const showToast = (message, type = 'success') => {
-    setToast({ visible: true, message, type })
-    setTimeout(() => setToast((t) => ({ ...t, visible: false })), 2500)
+  // Modal States
+  const [editBizModal, setEditBizModal] = useState(null)
+  const [pinModal, setPinModal] = useState(null)
+  const [linkCardModal, setLinkCardModal] = useState(null)
+  const [qrModalCard, setQrModalCard] = useState(null)
+  const [qrModalDataUrl, setQrModalDataUrl] = useState('')
+
+  // Create Business Form
+  const [createCategory, setCreateCategory] = useState('Salon')
+  const [createName, setCreateName] = useState('')
+  const [createLogo, setCreateLogo] = useState('')
+  const [createReviewUrl, setCreateReviewUrl] = useState('')
+  const [createWhatsApp, setCreateWhatsApp] = useState('')
+  const [createInstagram, setCreateInstagram] = useState('')
+  const [createWelcome, setCreateWelcome] = useState('')
+  const [createCardId, setCreateCardId] = useState('')
+  const [createOwnerAccess, setCreateOwnerAccess] = useState('A')
+  const [createOwnerPhone, setCreateOwnerPhone] = useState('')
+  const [createOwnerPin, setCreateOwnerPin] = useState('')
+  const [createSaving, setCreateSaving] = useState(false)
+
+  // Dedicated Link Form
+  const [selectedLinkCard, setSelectedLinkCard] = useState('')
+  const [selectedLinkBiz, setSelectedLinkBiz] = useState('')
+  const [linkSaving, setLinkSaving] = useState(false)
+
+  // QR Bulk Download Progress
+  const [zipProgress, setZipProgress] = useState(null)
+
+  // QR Hub credentials state
+  const [qrhubApiKey, setQrhubApiKey] = useState(localStorage.getItem('qrhub_api_key') || '')
+  const [qrhubApiUrl, setQrhubApiUrl] = useState(localStorage.getItem('qrhub_api_url') || 'https://api.qrhub.com/v1')
+  const [qrhubSaved, setQrhubSaved] = useState(false)
+
+  // Load Data
+  const reloadData = async () => {
+    setLoading(true)
+    try {
+      const allCards = await getAllCards()
+      const allBiz = await getAllBusinesses()
+      setCards(allCards)
+      setBusinesses(allBiz)
+    } catch (err) {
+      console.error('Error loading dashboard data:', err)
+    } finally {
+      setLoading(false)
+    }
   }
-
-  const loadPages = useCallback(async () => {
-    try {
-      const data = await listPages()
-      const list = Array.isArray(data) ? data : data?.pages || []
-      setPages(list)
-      return list
-    } catch {
-      return []
-    }
-  }, [])
-
-  const loadPageData = useCallback(async (pgId) => {
-    try {
-      const data = await getPage(pgId)
-      // API returns { success, page } — unwrap the page object
-      const raw = data?.page || data?.settings || data || {}
-      // Normalize DB column names → frontend form field names
-      const settings = {
-        ...raw,
-        google_review_text: raw.google_review_text,
-        whatsapp_text: raw.whatsapp_text,
-        instagram_text: raw.instagram_text,
-        btn_style: raw.btn_style,
-        // Also populate the _btn_text aliases used by some components
-        google_review_btn_text: raw.google_review_text || raw.google_review_btn_text || 'Leave a Google Review',
-        whatsapp_btn_text: raw.whatsapp_text || raw.whatsapp_btn_text || 'Chat on WhatsApp',
-        instagram_btn_text: raw.instagram_text || raw.instagram_btn_text || 'Follow on Instagram',
-        button_style: raw.btn_style || raw.button_style || 'solid',
-      }
-      setFormData({ ...DEFAULT_FORM, ...settings })
-      setLogoPreview(settings.logo_url || null)
-    } catch {
-      setFormData({ ...DEFAULT_FORM })
-    }
-  }, [])
 
   useEffect(() => {
-    const init = async () => {
-      try {
-        await verifyAuth()
-      } catch {
-        localStorage.removeItem('admin_token')
-        navigate('/admin/login', { replace: true })
-        return
-      }
-      setAuthLoading(false)
-      const list = await loadPages()
-      if (list.length > 0) {
-        const firstId = list[0].page_id || list[0].id
-        setSelectedPageId(firstId)
-        await loadPageData(firstId)
-      }
-    }
-    init()
-  }, [navigate, loadPages, loadPageData])
-
-  useEffect(() => {
-    if (selectedPageId) {
-      loadPageData(selectedPageId)
-    }
-  }, [selectedPageId, loadPageData])
-
-  const handleLogout = async () => {
-    try { await logout() } catch {}
-    localStorage.removeItem('admin_token')
-    navigate('/admin/login', { replace: true })
-  }
-
-  const handleFieldChange = (key, value) => {
-    setFormData((prev) => ({ ...prev, [key]: value }))
-  }
-
-  const handleLogoFile = (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setLogoFile(file)
-    setLogoPreview(URL.createObjectURL(file))
-  }
-
-  const handleUploadLogo = async () => {
-    if (!logoFile || !selectedPageId) return
-    setUploadingLogo(true)
-    try {
-      const fd = new FormData()
-      fd.append('logo', logoFile)
-      const res = await api.post(`/upload/${selectedPageId}`, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      const url = res.data?.url || res.data?.logo_url || ''
-      handleFieldChange('logo_url', url)
-      setLogoFile(null)
-      showToast('Logo uploaded!', 'success')
-    } catch {
-      // Local preview & fallback via FileReader
-      const reader = new FileReader()
-      reader.onload = (ev) => {
-        const localUrl = ev.target?.result
-        if (localUrl) {
-          handleFieldChange('logo_url', localUrl)
-          setLogoFile(null)
-          showToast('Logo updated!', 'success')
-        }
-      }
-      reader.readAsDataURL(logoFile)
-    } finally {
-      setUploadingLogo(false)
-    }
-  }
-
-  const handleSave = async () => {
-    if (!selectedPageId) return
-    setSaving(true)
-    try {
-      // Auto-assign status if customer business name is provided
-      let status = formData.status || 'available'
-      if (formData.business_name && status === 'available') {
-        status = 'assigned'
-      }
-
-      // Map frontend field names → DB column names
-      const payload = {
-        ...formData,
-        page_id: selectedPageId, // ensure permanent URL never changes!
-        status,
-        google_review_text: formData.google_review_text || formData.google_review_btn_text,
-        whatsapp_text: formData.whatsapp_text || formData.whatsapp_btn_text,
-        instagram_text: formData.instagram_text || formData.instagram_btn_text,
-        btn_style: formData.btn_style || formData.button_style,
-      }
-      await updatePage(selectedPageId, payload)
-      await loadPages()
-      showToast('✓ Saved! Live page updated.', 'success')
-    } catch {
-      showToast('Save failed. Please try again.', 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleReset = async () => {
-    if (!selectedPageId) return
-    const confirmed = window.confirm('Revert all fields to the last saved database state?')
-    if (!confirmed) return
-    await loadPageData(selectedPageId)
-    showToast('Reset to saved state.', 'success')
-  }
-
-  const handleSaveDbConfig = () => {
-    if (supabaseUrl.trim()) {
-      localStorage.setItem('nfc_supabase_url', supabaseUrl.trim())
-    } else {
-      localStorage.removeItem('nfc_supabase_url')
-    }
-    if (supabaseKey.trim()) {
-      localStorage.setItem('nfc_supabase_anon_key', supabaseKey.trim())
-    } else {
-      localStorage.removeItem('nfc_supabase_anon_key')
-    }
-    showToast('Database configuration updated!', 'success')
-  }
-
-  const handleCreatePage = async () => {
-    if (!newPageId.trim() || !newBusinessName.trim()) {
-      setCreateError('Both fields are required.')
+    const token = localStorage.getItem('admin_token')
+    if (!token) {
+      navigate('/admin/login')
       return
     }
-    setCreating(true)
-    setCreateError('')
-    try {
-      await createPage({
-        page_id: newPageId.trim(),
-        business_name: newBusinessName.trim(),
-      })
-      setShowCreateModal(false)
-      setNewPageId('')
-      setNewBusinessName('')
-      const list = await loadPages()
-      setSelectedPageId(newPageId.trim())
-    } catch (err) {
-      setCreateError(err?.response?.data?.message || 'Failed to create page.')
-    } finally {
-      setCreating(false)
-    }
+    reloadData()
+  }, [navigate])
+
+  const handleLogout = () => {
+    localStorage.removeItem('admin_token')
+    navigate('/admin/login')
   }
 
-  const handleDeletePage = async (pgId) => {
-    setDeleting(true)
+  const handleCopyUrl = (url, id) => {
+    navigator.clipboard.writeText(url)
+    setCopiedUrl(id)
+    setTimeout(() => setCopiedUrl(''), 2500)
+  }
+
+  const handleShowQrModal = async (c) => {
+    setQrModalCard(c)
     try {
-      await deletePage(pgId)
-      setDeleteConfirm(null)
-      const list = await loadPages()
-      if (selectedPageId === pgId) {
-        if (list.length > 0) {
-          const newId = list[0].page_id || list[0].id
-          setSelectedPageId(newId)
-        } else {
-          setSelectedPageId(null)
-          setFormData({ ...DEFAULT_FORM })
-        }
+      const dataUrl = await generateQRDataURL(c.permanent_url)
+      setQrModalDataUrl(dataUrl)
+    } catch {}
+  }
+
+  // Filtered Cards
+  const filteredCards = useMemo(() => {
+    return cards.filter((c) => {
+      const q = cardSearch.toLowerCase()
+      const matchesSearch =
+        c.card_id.includes(q) ||
+        (c.business_name && c.business_name.toLowerCase().includes(q)) ||
+        (c.business_id && c.business_id.toLowerCase().includes(q))
+
+      if (!matchesSearch) return false
+
+      if (cardFilter === 'available') return c.status === 'available' || !c.business_id
+      if (cardFilter === 'assigned') return c.status === 'assigned'
+      if (cardFilter === 'linked') return c.status === 'linked'
+      return true
+    })
+  }, [cards, cardSearch, cardFilter])
+
+  // Overview Metrics
+  const metrics = useMemo(() => {
+    const totalCards = 50
+    const availableCards = cards.filter((c) => c.status === 'available' || !c.business_id).length
+    const assignedCards = cards.filter((c) => c.status === 'assigned' || c.status === 'linked').length
+    const totalBusinesses = businesses.length
+    const linkedCards = cards.filter((c) => c.status === 'linked').length
+    return {
+      totalCards,
+      availableCards,
+      assignedCards,
+      totalBusinesses,
+      linkedCards,
+    }
+  }, [cards, businesses])
+
+  // Handle Create Business Submit
+  const handleCreateBusinessSubmit = async (e) => {
+    e.preventDefault()
+    if (!createName.trim()) {
+      alert('Business name is required.')
+      return
+    }
+
+    if (createOwnerAccess === 'A' && (!createOwnerPhone.trim() || !createOwnerPin.trim())) {
+      alert('Please provide owner mobile number and PIN, or choose Skip Owner Access.')
+      return
+    }
+
+    setCreateSaving(true)
+    try {
+      const data = {
+        name: createName,
+        category: createCategory,
+        logo_url: createLogo,
+        google_review_url: createReviewUrl,
+        whatsapp_number: createWhatsApp,
+        instagram_url: createInstagram,
+        welcome_message: createWelcome,
+        owner_phone: createOwnerAccess === 'A' ? createOwnerPhone : '',
+        owner_pin: createOwnerAccess === 'A' ? createOwnerPin : '',
+        owner_access_enabled: createOwnerAccess === 'A',
       }
-      showToast('Page deleted.', 'success')
-    } catch {
-      showToast('Delete failed.', 'error')
+
+      await createBusiness(data, createCardId || null)
+      await reloadData()
+
+      // Reset form
+      setCreateName('')
+      setCreateLogo('')
+      setCreateReviewUrl('')
+      setCreateWhatsApp('')
+      setCreateInstagram('')
+      setCreateWelcome('')
+      setCreateCardId('')
+      setCreateOwnerPhone('')
+      setCreateOwnerPin('')
+
+      setActiveTab('businesses')
+    } catch (err) {
+      alert('Error creating business.')
     } finally {
-      setDeleting(false)
+      setCreateSaving(false)
     }
   }
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <LoadingSpinner size="lg" color="indigo" />
-      </div>
-    )
+  // Handle Link Card Submit
+  const handleLinkCardSubmit = async (e) => {
+    e.preventDefault()
+    if (!selectedLinkCard || !selectedLinkBiz) {
+      alert('Please select both a card and a business.')
+      return
+    }
+
+    setLinkSaving(true)
+    try {
+      await linkCardToBusiness(selectedLinkCard, selectedLinkBiz)
+      await reloadData()
+      setSelectedLinkCard('')
+      setSelectedLinkBiz('')
+      setActiveTab('cards')
+    } catch (err) {
+      alert('Error linking card.')
+    } finally {
+      setLinkSaving(false)
+    }
   }
+
+  // Handle Unlink Card
+  const handleUnlink = async (cardId) => {
+    if (!window.confirm(`Unlink Card #${cardId}? It will revert to Available state.`)) return
+    try {
+      await unlinkCard(cardId)
+      await reloadData()
+    } catch {
+      alert('Error unlinking card.')
+    }
+  }
+
+  // Handle Delete Business
+  const handleDeleteBusiness = async (bizId, name) => {
+    if (!window.confirm(`Delete business "${name}"? All attached cards will revert to Available.`)) return
+    try {
+      await deleteBusiness(bizId)
+      await reloadData()
+    } catch {
+      alert('Error deleting business.')
+    }
+  }
+
+  // Handle Save Edited Business
+  const handleSaveEditedBusiness = async (e) => {
+    e.preventDefault()
+    if (!editBizModal) return
+
+    try {
+      await updateBusiness(editBizModal.id, {
+        name: editBizModal.name,
+        category: editBizModal.category,
+        logo_url: editBizModal.logo_url,
+        google_review_url: editBizModal.google_review_url,
+        google_review_enabled: editBizModal.google_review_enabled,
+        whatsapp_number: editBizModal.whatsapp_number,
+        whatsapp_enabled: editBizModal.whatsapp_enabled,
+        instagram_url: editBizModal.instagram_url,
+        instagram_enabled: editBizModal.instagram_enabled,
+        welcome_message: editBizModal.welcome_message,
+      })
+      await reloadData()
+      setEditBizModal(null)
+    } catch {
+      alert('Error updating business.')
+    }
+  }
+
+  // Handle Save Reset PIN
+  const handleSavePin = async (e) => {
+    e.preventDefault()
+    if (!pinModal) return
+    try {
+      await resetOwnerPin(pinModal.businessId, pinModal.newPin, pinModal.newPhone)
+      await reloadData()
+      setPinModal(null)
+      alert('Owner PIN updated successfully.')
+    } catch {
+      alert('Error updating PIN.')
+    }
+  }
+
+  // Available cards list for dropdowns
+  const availableCards = cards.filter((c) => c.status === 'available' || !c.business_id)
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Toast */}
-      <Toast message={toast.message} type={toast.type} visible={toast.visible} />
-
-      {/* Header */}
-      <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-30">
-        <div className="max-w-screen-xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
-              <Smartphone size={16} className="text-white" />
-            </div>
-            <span className="font-bold text-gray-900 text-lg hidden sm:block">NFC Dashboard</span>
-          </div>
-
-          <div className="flex items-center gap-2 flex-1 justify-center sm:justify-end max-w-xs">
-            {pages.length > 0 && (
-              <div className="relative">
-                <select
-                  value={selectedPageId || ''}
-                  onChange={(e) => setSelectedPageId(e.target.value)}
-                  className="border border-gray-200 rounded-xl pl-3 pr-8 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white font-medium text-gray-700 cursor-pointer"
-                >
-                  {pages.map((p) => (
-                    <option key={p.page_id || p.id} value={p.page_id || p.id}>
-                      {p.settings?.business_name || p.business_name || p.page_id || p.id}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+    <div className="min-h-screen bg-[#050507] text-white flex flex-col md:flex-row">
+      {/* ── SIDEBAR NAVIGATION ── */}
+      <aside className="w-full md:w-64 bg-[#08090e] border-r border-white/10 flex flex-col justify-between shrink-0">
+        <div>
+          {/* Logo / Header */}
+          <div className="p-6 border-b border-white/10 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-[#a3e635] text-black font-black flex items-center justify-center text-sm shadow-[0_0_15px_rgba(163,230,53,0.35)]">
+                OM
               </div>
-            )}
-
-            {selectedPageId && (
-              <a
-                href={`/p/${selectedPageId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hidden sm:flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-medium border border-indigo-100 bg-indigo-50 rounded-lg px-2.5 py-1.5 transition-colors"
-              >
-                <ExternalLink size={12} />
-                Preview
-              </a>
-            )}
+              <div>
+                <h1 className="text-sm font-black tracking-tight text-white">
+                  OMDROPZ <span className="text-[#a3e635]">ADMIN</span>
+                </h1>
+                <p className="text-[10px] font-mono text-gray-400">NFC &amp; QR Management</p>
+              </div>
+            </div>
           </div>
 
+          {/* Nav Items */}
+          <nav className="p-3 space-y-1.5 text-xs font-semibold">
+            <button
+              onClick={() => setActiveTab('overview')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
+                activeTab === 'overview'
+                  ? 'bg-[#a3e635] text-black font-extrabold shadow-md'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <LayoutDashboard size={17} />
+              <span>Overview</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('cards')}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
+                activeTab === 'cards'
+                  ? 'bg-[#a3e635] text-black font-extrabold shadow-md'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <CreditCard size={17} />
+                <span>All NFC Cards</span>
+              </div>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono ${
+                activeTab === 'cards' ? 'bg-black text-[#a3e635]' : 'bg-white/10 text-gray-300'
+              }`}>
+                50
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('businesses')}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
+                activeTab === 'businesses'
+                  ? 'bg-[#a3e635] text-black font-extrabold shadow-md'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Building2 size={17} />
+                <span>All Businesses</span>
+              </div>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono ${
+                activeTab === 'businesses' ? 'bg-black text-[#a3e635]' : 'bg-white/10 text-gray-300'
+              }`}>
+                {businesses.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('create-biz')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
+                activeTab === 'create-biz'
+                  ? 'bg-[#a3e635] text-black font-extrabold shadow-md'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <PlusCircle size={17} />
+              <span>Create New Business</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('link-biz')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
+                activeTab === 'link-biz'
+                  ? 'bg-[#a3e635] text-black font-extrabold shadow-md'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Link2 size={17} />
+              <span>Link Existing Business</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('qr-hub')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
+                activeTab === 'qr-hub'
+                  ? 'bg-[#a3e635] text-black font-extrabold shadow-md'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <QrCode size={17} />
+              <span>QR Code Management</span>
+            </button>
+          </nav>
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t border-white/10 space-y-2">
+          <Link
+            to="/"
+            target="_blank"
+            className="flex items-center gap-2 text-xs text-gray-400 hover:text-white px-3 py-2 rounded-xl transition-colors"
+          >
+            <ExternalLink size={14} />
+            <span>View Public Landing</span>
+          </Link>
           <button
             onClick={handleLogout}
-            className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-red-600 transition-colors px-3 py-2 rounded-xl hover:bg-red-50"
+            className="w-full flex items-center gap-2 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-3 py-2 rounded-xl transition-colors cursor-pointer"
           >
-            <LogOut size={16} />
-            <span className="hidden sm:block">Logout</span>
+            <LogOut size={14} />
+            <span>Sign Out</span>
           </button>
         </div>
-      </header>
+      </aside>
 
-      {/* Main */}
-      <main className="flex-1 max-w-screen-xl mx-auto w-full px-4 py-6">
-        {selectedPageId === null && pages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <LayoutDashboard size={48} className="text-gray-200 mb-4" />
-            <h2 className="text-xl font-semibold text-gray-700 mb-2">No pages yet</h2>
-            <p className="text-gray-400 mb-6 text-sm">Create your first NFC card page to get started.</p>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center gap-2 shadow-lg shadow-indigo-100"
-            >
-              <Plus size={18} />
-              Create First Page
-            </button>
+      {/* ── MAIN DASHBOARD VIEWPORT ── */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        {/* Top Header Bar */}
+        <header className="px-6 py-4 border-b border-white/10 bg-[#08090e]/70 backdrop-blur-md flex items-center justify-between sticky top-0 z-20">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-mono uppercase tracking-widest text-[#a3e635] bg-[#a3e635]/10 px-2.5 py-1 rounded-md border border-[#a3e635]/20 font-bold">
+              ADMIN v2.0
+            </span>
+            <h2 className="text-sm font-bold capitalize text-white">
+              {activeTab.replace('-', ' ')}
+            </h2>
           </div>
-        ) : (
-          <div className="flex flex-col lg:flex-row gap-6">
-            {/* LEFT PANEL */}
-            <div className="flex-1 min-w-0">
-              {/* Tabs */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-4">
-                <div className="flex border-b border-gray-100">
-                  {TABS.map((tab) => {
-                    const Icon = tab.icon
-                    return (
-                      <button
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id)}
-                        className={`flex-1 flex flex-col sm:flex-row items-center justify-center gap-1.5 py-3.5 text-xs sm:text-sm font-medium transition-all duration-200 border-b-2 ${
-                          activeTab === tab.id
-                            ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50'
-                            : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'
-                        }`}
-                      >
-                        <Icon size={16} />
-                        <span className="hidden sm:block">{tab.label}</span>
-                        <span className="sm:hidden text-[10px]">{tab.label}</span>
-                      </button>
-                    )
-                  })}
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={reloadData}
+              className="text-xs text-gray-400 hover:text-white p-2 rounded-lg border border-white/10 hover:bg-white/5 transition-colors cursor-pointer flex items-center gap-1.5"
+              title="Refresh Data"
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+            <Link
+              to="/owner/login"
+              target="_blank"
+              className="text-xs bg-white/5 hover:bg-white/10 text-gray-300 px-3 py-1.5 rounded-lg border border-white/10 transition-colors flex items-center gap-1.5"
+            >
+              <Smartphone size={13} className="text-[#a3e635]" />
+              <span>Owner Portal</span>
+            </Link>
+          </div>
+        </header>
+
+        {/* Dynamic Content */}
+        <div className="p-6 sm:p-8 space-y-8 flex-1">
+          {/* ════════════════════════════════════════════════════════════
+              TAB 1: OVERVIEW
+              ════════════════════════════════════════════════════════════ */}
+          {activeTab === 'overview' && (
+            <div className="space-y-8">
+              {/* Metrics Grid */}
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="p-5 rounded-2xl bg-[#0e1017] border border-white/10 shadow-lg">
+                  <div className="flex items-center justify-between text-gray-400 text-xs mb-2">
+                    <span>Total NFC Cards</span>
+                    <CreditCard size={16} className="text-[#a3e635]" />
+                  </div>
+                  <div className="text-3xl font-black text-white font-mono">{metrics.totalCards}</div>
+                  <p className="text-[10px] text-gray-500 mt-1">Cards 001 to 050</p>
                 </div>
 
-                {/* Tab content */}
-                <div className="p-5">
-                  {/* ========== BULK CARDS GENERATOR TAB ========== */}
-                  {activeTab === 'bulk-cards' && (
-                    <BulkCardsManager
-                      onEditCard={async (cardId) => {
-                        setSelectedPageId(cardId)
-                        await loadPageData(cardId)
-                        setActiveTab('business')
-                      }}
-                      onSelectForPreview={async (cardId) => {
-                        setSelectedPageId(cardId)
-                        await loadPageData(cardId)
-                      }}
-                    />
-                  )}
+                <div className="p-5 rounded-2xl bg-[#0e1017] border border-white/10 shadow-lg">
+                  <div className="flex items-center justify-between text-gray-400 text-xs mb-2">
+                    <span>Available Cards</span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  </div>
+                  <div className="text-3xl font-black text-emerald-400 font-mono">{metrics.availableCards}</div>
+                  <p className="text-[10px] text-gray-500 mt-1">Ready to program</p>
+                </div>
 
-                  {/* ========== BUSINESS TAB ========== */}
-                  {activeTab === 'business' && (
-                    <div>
-                      {/* Permanent Bulk Card Banner */}
-                      {selectedPageId && /^\d{1,3}$/.test(selectedPageId) && (
-                        <div className="mb-5 p-3.5 rounded-2xl bg-indigo-50 border border-indigo-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                          <div className="flex items-center gap-2 text-indigo-900 font-semibold">
-                            <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-mono font-bold text-xs">
-                              {selectedPageId}
-                            </span>
-                            <span>
-                              Editing PVC Card #{selectedPageId} (URL: <strong className="font-mono">https://nfc-sage.vercel.app/p/{selectedPageId}</strong>)
-                            </span>
-                          </div>
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 bg-white px-2.5 py-1 rounded-full border border-indigo-200 self-start sm:self-auto">
-                            Permanent URL & QR Locked
-                          </span>
-                        </div>
-                      )}
+                <div className="p-5 rounded-2xl bg-[#0e1017] border border-white/10 shadow-lg">
+                  <div className="flex items-center justify-between text-gray-400 text-xs mb-2">
+                    <span>Assigned Cards</span>
+                    <span className="w-2 h-2 rounded-full bg-[#a3e635]" />
+                  </div>
+                  <div className="text-3xl font-black text-[#a3e635] font-mono">{metrics.assignedCards}</div>
+                  <p className="text-[10px] text-gray-500 mt-1">Linked to businesses</p>
+                </div>
 
-                      <div className="flex items-center justify-between mb-2">
-                        <SectionLabel>Business Info</SectionLabel>
-                        {/* Status selector */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium text-gray-500">Card Status:</span>
-                          <select
-                            value={formData.status || 'available'}
-                            onChange={(e) => handleFieldChange('status', e.target.value)}
-                            className="text-xs font-bold px-2 py-1 rounded-lg border border-gray-200 bg-white cursor-pointer outline-none"
-                          >
-                            <option value="available">🟢 Available</option>
-                            <option value="assigned">🟡 Assigned</option>
-                            <option value="active">🔵 Active</option>
-                          </select>
-                        </div>
-                      </div>
+                <div className="p-5 rounded-2xl bg-[#0e1017] border border-white/10 shadow-lg">
+                  <div className="flex items-center justify-between text-gray-400 text-xs mb-2">
+                    <span>Total Businesses</span>
+                    <Building2 size={16} className="text-indigo-400" />
+                  </div>
+                  <div className="text-3xl font-black text-indigo-400 font-mono">{metrics.totalBusinesses}</div>
+                  <p className="text-[10px] text-gray-500 mt-1">Registered clients</p>
+                </div>
 
-                      <FieldGroup label="Business Name">
-                        <input
-                          type="text"
-                          value={formData.business_name}
-                          onChange={(e) => handleFieldChange('business_name', e.target.value)}
-                          placeholder="Acme Corp"
-                          className={inputCls()}
-                        />
-                      </FieldGroup>
-
-                      <FieldGroup label="Welcome Message">
-                        <textarea
-                          value={formData.welcome_message}
-                          onChange={(e) => handleFieldChange('welcome_message', e.target.value)}
-                          placeholder="Welcome! We're glad you're here. Connect with us below."
-                          rows={3}
-                          className={inputCls('resize-none')}
-                        />
-                      </FieldGroup>
-
-                      <FieldGroup label="Footer Brand Name">
-                        <input
-                          type="text"
-                          value={formData.footer_brand}
-                          onChange={(e) => handleFieldChange('footer_brand', e.target.value)}
-                          placeholder="NFCCard"
-                          className={inputCls()}
-                        />
-                        <p className="text-xs text-gray-400">Shown in "Powered by ___" footer text.</p>
-                      </FieldGroup>
-
-                      <SectionLabel>Logo / Avatar</SectionLabel>
-
-                      <div className="flex items-start gap-4 mb-4">
-                        <div className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-gray-100 flex-shrink-0 bg-gray-50 flex items-center justify-center">
-                          {logoPreview || formData.logo_url ? (
-                            <img
-                              src={logoPreview || formData.logo_url}
-                              alt="Logo"
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <span className="text-3xl font-black text-gray-200">
-                              {(formData.business_name || 'B').charAt(0).toUpperCase()}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex flex-col gap-2 flex-1">
-                          <label className="cursor-pointer inline-flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium text-sm px-4 py-2.5 rounded-xl transition-colors">
-                            <Upload size={15} />
-                            Choose Logo
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={handleLogoFile}
-                              className="hidden"
-                            />
-                          </label>
-
-                          {logoFile && (
-                            <button
-                              onClick={handleUploadLogo}
-                              disabled={uploadingLogo}
-                              className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm px-4 py-2.5 rounded-xl transition-colors disabled:opacity-60"
-                            >
-                              {uploadingLogo ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
-                              {uploadingLogo ? 'Uploading...' : 'Upload Logo'}
-                            </button>
-                          )}
-
-                          {formData.logo_url && (
-                            <input
-                              type="text"
-                              value={formData.logo_url}
-                              onChange={(e) => handleFieldChange('logo_url', e.target.value)}
-                              placeholder="https://..."
-                              className={inputCls('text-xs')}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ========== SOCIAL TAB ========== */}
-                  {activeTab === 'social' && (
-                    <div>
-                      {/* Google Review */}
-                      <SectionLabel>Google Review</SectionLabel>
-                      <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 mb-4">
-                        <ToggleSwitch
-                          checked={formData.google_review_enabled}
-                          onChange={(v) => handleFieldChange('google_review_enabled', v)}
-                          label="Enable Google Review button"
-                          id="google-toggle"
-                        />
-                        {formData.google_review_enabled && (
-                          <div className="mt-4 flex flex-col gap-3">
-                            <FieldGroup label="Google Review URL">
-                              <input
-                                type="url"
-                                value={formData.google_review_url}
-                                onChange={(e) => handleFieldChange('google_review_url', e.target.value)}
-                                placeholder="https://g.page/r/..."
-                                className={inputCls()}
-                              />
-                            </FieldGroup>
-                            <FieldGroup label="Button Text">
-                              <input
-                                type="text"
-                                value={formData.google_review_btn_text}
-                                onChange={(e) => handleFieldChange('google_review_btn_text', e.target.value)}
-                                placeholder="Leave a Google Review"
-                                className={inputCls()}
-                              />
-                            </FieldGroup>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* WhatsApp */}
-                      <SectionLabel>WhatsApp</SectionLabel>
-                      <div className="bg-green-50 border border-green-100 rounded-2xl p-4 mb-4">
-                        <ToggleSwitch
-                          checked={formData.whatsapp_enabled}
-                          onChange={(v) => handleFieldChange('whatsapp_enabled', v)}
-                          label="Enable WhatsApp button"
-                          id="whatsapp-toggle"
-                        />
-                        {formData.whatsapp_enabled && (
-                          <div className="mt-4 flex flex-col gap-3">
-                            <FieldGroup label="WhatsApp Number (with country code)">
-                              <input
-                                type="tel"
-                                value={formData.whatsapp_number}
-                                onChange={(e) => handleFieldChange('whatsapp_number', e.target.value)}
-                                placeholder="+1234567890"
-                                className={inputCls()}
-                              />
-                            </FieldGroup>
-                            <FieldGroup label="Button Text">
-                              <input
-                                type="text"
-                                value={formData.whatsapp_btn_text}
-                                onChange={(e) => handleFieldChange('whatsapp_btn_text', e.target.value)}
-                                placeholder="Chat on WhatsApp"
-                                className={inputCls()}
-                              />
-                            </FieldGroup>
-                            <FieldGroup label="Default Message">
-                              <textarea
-                                value={formData.whatsapp_message}
-                                onChange={(e) => handleFieldChange('whatsapp_message', e.target.value)}
-                                placeholder="Hi! I found your NFC card."
-                                rows={2}
-                                className={inputCls('resize-none')}
-                              />
-                            </FieldGroup>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Instagram */}
-                      <SectionLabel>Instagram</SectionLabel>
-                      <div className="bg-pink-50 border border-pink-100 rounded-2xl p-4">
-                        <ToggleSwitch
-                          checked={formData.instagram_enabled}
-                          onChange={(v) => handleFieldChange('instagram_enabled', v)}
-                          label="Enable Instagram button"
-                          id="instagram-toggle"
-                        />
-                        {formData.instagram_enabled && (
-                          <div className="mt-4 flex flex-col gap-3">
-                            <FieldGroup label="Instagram Profile URL">
-                              <input
-                                type="url"
-                                value={formData.instagram_url}
-                                onChange={(e) => handleFieldChange('instagram_url', e.target.value)}
-                                placeholder="https://instagram.com/yourhandle"
-                                className={inputCls()}
-                              />
-                            </FieldGroup>
-                            <FieldGroup label="Button Text">
-                              <input
-                                type="text"
-                                value={formData.instagram_btn_text}
-                                onChange={(e) => handleFieldChange('instagram_btn_text', e.target.value)}
-                                placeholder="Follow on Instagram"
-                                className={inputCls()}
-                              />
-                            </FieldGroup>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ========== DESIGN TAB ========== */}
-                  {activeTab === 'design' && (
-                    <div>
-                      <SectionLabel>Colors</SectionLabel>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                        <ColorPicker
-                          label="Background Color"
-                          value={formData.bg_color}
-                          onChange={(v) => handleFieldChange('bg_color', v)}
-                        />
-                        <ColorPicker
-                          label="Button Color"
-                          value={formData.btn_color}
-                          onChange={(v) => handleFieldChange('btn_color', v)}
-                        />
-                        <ColorPicker
-                          label="Text Color"
-                          value={formData.text_color}
-                          onChange={(v) => handleFieldChange('text_color', v)}
-                        />
-                      </div>
-
-                      <SectionLabel>Button Style</SectionLabel>
-                      <div className="flex gap-3 mb-4 flex-wrap">
-                        {['solid', 'outline', 'ghost'].map((style) => (
-                          <label
-                            key={style}
-                            className={`flex items-center gap-2 cursor-pointer px-4 py-2.5 rounded-xl border-2 font-medium text-sm transition-all capitalize ${
-                              formData.button_style === style
-                                ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                                : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                            }`}
-                          >
-                            <input
-                              type="radio"
-                              name="button_style"
-                              value={style}
-                              checked={formData.button_style === style}
-                              onChange={() => handleFieldChange('button_style', style)}
-                              className="sr-only"
-                            />
-                            {style}
-                          </label>
-                        ))}
-                      </div>
-
-                      <SectionLabel>Typography & Shape</SectionLabel>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                        <FieldGroup label="Font Family">
-                          <div className="relative">
-                            <select
-                              value={formData.font}
-                              onChange={(e) => handleFieldChange('font', e.target.value)}
-                              className={inputCls('appearance-none pr-8')}
-                            >
-                              {FONTS.map((f) => (
-                                <option key={f} value={f}>{f}</option>
-                              ))}
-                            </select>
-                            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                          </div>
-                        </FieldGroup>
-
-                        <FieldGroup label="Border Radius">
-                          <div className="relative">
-                            <select
-                              value={formData.border_radius}
-                              onChange={(e) => handleFieldChange('border_radius', e.target.value)}
-                              className={inputCls('appearance-none pr-8')}
-                            >
-                              {RADII.map((r) => (
-                                <option key={r.value} value={r.value}>{r.label}</option>
-                              ))}
-                            </select>
-                            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                          </div>
-                        </FieldGroup>
-                      </div>
-
-                      <SectionLabel>Layout & Theme</SectionLabel>
-                      <div className="flex flex-col gap-4">
-                        <div>
-                          <label className="text-sm font-medium text-gray-700 block mb-2">Layout</label>
-                          <div className="flex gap-3">
-                            {['centered', 'left'].map((l) => (
-                              <label
-                                key={l}
-                                className={`flex items-center gap-2 cursor-pointer px-4 py-2.5 rounded-xl border-2 font-medium text-sm transition-all capitalize ${
-                                  formData.layout === l
-                                    ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                                    : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                                }`}
-                              >
-                                <input
-                                  type="radio"
-                                  name="layout"
-                                  value={l}
-                                  checked={formData.layout === l}
-                                  onChange={() => handleFieldChange('layout', l)}
-                                  className="sr-only"
-                                />
-                                {l === 'centered' ? 'Centered' : 'Left-aligned'}
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="text-sm font-medium text-gray-700 block mb-2">Theme</label>
-                          <div className="flex items-center gap-3">
-                            <ToggleSwitch
-                              checked={formData.theme === 'dark'}
-                              onChange={(v) => handleFieldChange('theme', v ? 'dark' : 'light')}
-                              label={formData.theme === 'dark' ? '🌙 Dark Mode' : '☀️ Light Mode'}
-                              id="theme-toggle"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ========== DATABASE TAB ========== */}
-                  {activeTab === 'database' && (
-                    <div>
-                      <SectionLabel>Database & Storage Engine</SectionLabel>
-                      <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 mb-5">
-                        <div className="flex items-center gap-2.5 text-emerald-900 font-bold text-sm mb-1">
-                          <Check size={18} className="text-emerald-600" />
-                          <span>Permanent Database Storage: Active</span>
-                        </div>
-                        <p className="text-xs text-emerald-700 leading-relaxed">
-                          All changes are permanently stored in an <strong>IndexedDB Persistent Database</strong>. They remain fully saved across page refreshes, browser restarts, and tab closures without relying on simple localStorage.
-                        </p>
-                      </div>
-
-                      <SectionLabel>Optional: Cloud Database (Supabase PostgreSQL)</SectionLabel>
-                      <p className="text-xs text-gray-500 mb-4">
-                        Connect a remote PostgreSQL Supabase database to synchronize your card edits live across different devices and teams.
-                      </p>
-
-                      <FieldGroup label="Supabase Project URL">
-                        <input
-                          type="url"
-                          value={supabaseUrl}
-                          onChange={(e) => setSupabaseUrl(e.target.value)}
-                          placeholder="https://your-project.supabase.co"
-                          className={inputCls()}
-                        />
-                      </FieldGroup>
-
-                      <FieldGroup label="Supabase Anon Key">
-                        <input
-                          type="password"
-                          value={supabaseKey}
-                          onChange={(e) => setSupabaseKey(e.target.value)}
-                          placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                          className={inputCls()}
-                        />
-                      </FieldGroup>
-
-                      <button
-                        type="button"
-                        onClick={handleSaveDbConfig}
-                        className="mt-2 bg-gray-900 hover:bg-black text-white text-xs font-semibold py-2.5 px-4 rounded-xl transition-all"
-                      >
-                        Save Database Keys
-                      </button>
-                    </div>
-                  )}
-
-                  {/* ========== PAGES TAB ========== */}
-                  {activeTab === 'pages' && (
-                    <div>
-                      <div className="flex items-center justify-between mb-4">
-                        <SectionLabel>All Pages</SectionLabel>
-                        <button
-                          onClick={() => setShowCreateModal(true)}
-                          className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
-                        >
-                          <Plus size={15} />
-                          New Page
-                        </button>
-                      </div>
-
-                      {pages.length === 0 ? (
-                        <div className="text-center py-10 text-gray-400">
-                          <LayoutDashboard size={32} className="mx-auto mb-2 opacity-30" />
-                          <p className="text-sm">No pages found.</p>
-                        </div>
-                      ) : (
-                        <div className="overflow-x-auto rounded-xl border border-gray-100">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                <th className="px-4 py-3">Page ID</th>
-                                <th className="px-4 py-3">Business Name</th>
-                                <th className="px-4 py-3 hidden sm:table-cell">Created</th>
-                                <th className="px-4 py-3 text-right">Actions</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                              {pages.map((p) => {
-                                const pgId = p.page_id || p.id
-                                return (
-                                  <tr
-                                    key={pgId}
-                                    className={`hover:bg-gray-50 transition-colors ${selectedPageId === pgId ? 'bg-indigo-50/40' : ''}`}
-                                  >
-                                    <td className="px-4 py-3 font-mono text-xs text-indigo-600">
-                                      {pgId}
-                                    </td>
-                                    <td className="px-4 py-3 font-medium text-gray-800">
-                                      {p.settings?.business_name || p.business_name || '—'}
-                                    </td>
-                                    <td className="px-4 py-3 text-gray-400 hidden sm:table-cell text-xs">
-                                      {p.created_at
-                                        ? new Date(p.created_at).toLocaleDateString()
-                                        : '—'}
-                                    </td>
-                                    <td className="px-4 py-3">
-                                      <div className="flex items-center justify-end gap-2">
-                                        <button
-                                          onClick={() => {
-                                            setSelectedPageId(pgId)
-                                            setActiveTab('business')
-                                          }}
-                                          className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors"
-                                        >
-                                          <Edit2 size={12} />
-                                          Edit
-                                        </button>
-                                        <button
-                                          onClick={() => setDeleteConfirm(pgId)}
-                                          className="flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-lg transition-colors"
-                                        >
-                                          <Trash2 size={12} />
-                                          Delete
-                                        </button>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                <div className="p-5 rounded-2xl bg-[#0e1017] border border-white/10 shadow-lg">
+                  <div className="flex items-center justify-between text-gray-400 text-xs mb-2">
+                    <span>Linked Cards</span>
+                    <Link2 size={16} className="text-blue-400" />
+                  </div>
+                  <div className="text-3xl font-black text-blue-400 font-mono">{metrics.linkedCards}</div>
+                  <p className="text-[10px] text-gray-500 mt-1">Multi-card clients</p>
                 </div>
               </div>
 
-              {/* Save & Reset buttons — not shown on bulk-cards, pages or database tab */}
-              {activeTab !== 'pages' && activeTab !== 'database' && activeTab !== 'bulk-cards' && selectedPageId && (
-                <div className="flex items-center gap-3">
+              {/* Quick Actions Row */}
+              <div className="p-6 rounded-3xl bg-[#0e1017] border border-white/10">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400 mb-4">
+                  Quick Management Actions
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs">
                   <button
-                    type="button"
-                    onClick={handleReset}
-                    disabled={saving}
-                    className="py-3 px-5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
+                    onClick={() => setActiveTab('create-biz')}
+                    className="p-4 rounded-2xl bg-gradient-to-tr from-[#a3e635]/20 to-[#bef264]/10 border border-[#a3e635]/30 hover:border-[#a3e635] text-left transition-all cursor-pointer group"
                   >
-                    <RotateCcw size={16} />
-                    Reset
+                    <PlusCircle size={20} className="text-[#a3e635] mb-2 group-hover:scale-110 transition-transform" />
+                    <div className="font-bold text-white text-sm">Create Business</div>
+                    <p className="text-gray-400 mt-0.5">Register a brand &amp; assign card</p>
                   </button>
+
                   <button
-                    onClick={handleSave}
-                    disabled={saving}
-                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center gap-2 justify-center shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-70"
+                    onClick={() => setActiveTab('link-biz')}
+                    className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 hover:border-indigo-400 text-left transition-all cursor-pointer group"
                   >
-                    {saving ? (
-                      <>
-                        <Loader2 size={18} className="animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Save size={18} />
-                        Save Changes
-                      </>
-                    )}
+                    <Link2 size={20} className="text-indigo-400 mb-2 group-hover:scale-110 transition-transform" />
+                    <div className="font-bold text-white text-sm">Link Card</div>
+                    <p className="text-gray-400 mt-0.5">Attach card to existing client</p>
                   </button>
+
+                  <button
+                    onClick={() => downloadAllCardsZip(cards, DEFAULT_BASE_URL, setZipProgress)}
+                    className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 hover:border-emerald-400 text-left transition-all cursor-pointer group"
+                  >
+                    <Archive size={20} className="text-emerald-400 mb-2 group-hover:scale-110 transition-transform" />
+                    <div className="font-bold text-white text-sm">Download 50 QRs (ZIP)</div>
+                    <p className="text-gray-400 mt-0.5">
+                      {zipProgress ? `${zipProgress.current}/${zipProgress.total}` : 'Batch export PNGs'}
+                    </p>
+                  </button>
+
+                  <button
+                    onClick={() => downloadCSVFile(cards, DEFAULT_BASE_URL)}
+                    className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 hover:border-amber-400 text-left transition-all cursor-pointer group"
+                  >
+                    <FileSpreadsheet size={20} className="text-amber-400 mb-2 group-hover:scale-110 transition-transform" />
+                    <div className="font-bold text-white text-sm">Export Manifest CSV</div>
+                    <p className="text-gray-400 mt-0.5">For NTAG213 NFC chip writing</p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Multi-Card Architecture Explanation Box */}
+              <div className="p-6 rounded-3xl bg-[#0e1017] border border-white/10 flex flex-col md:flex-row gap-6 items-start">
+                <div className="w-12 h-12 rounded-2xl bg-[#a3e635]/10 border border-[#a3e635]/30 flex items-center justify-center shrink-0 text-[#a3e635]">
+                  <Info size={24} />
+                </div>
+                <div>
+                  <h4 className="text-base font-bold text-white">
+                    Multi-Card Architecture Rules
+                  </h4>
+                  <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                    A business client (e.g. a salon or restaurant) can order multiple PVC cards. For example, if a salon purchases 5 cards:
+                    create the salon once on Card <span className="text-[#a3e635] font-mono font-bold">001</span>, then use <span className="text-indigo-400 font-bold">Link Existing Business</span> to attach Cards <span className="text-indigo-400 font-mono font-bold">002, 003, 004, 005</span>. All 5 physical cards resolve seamlessly to that single business profile, with zero profile duplication.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ════════════════════════════════════════════════════════════
+              TAB 2: ALL NFC CARDS (50 Cards)
+              ════════════════════════════════════════════════════════════ */}
+          {activeTab === 'cards' && (
+            <div className="space-y-4">
+              {/* Filter & Search Bar */}
+              <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-[#0e1017] p-4 rounded-2xl border border-white/10">
+                <div className="relative w-full sm:w-72">
+                  <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+                  <input
+                    type="text"
+                    value={cardSearch}
+                    onChange={(e) => setCardSearch(e.target.value)}
+                    placeholder="Search by ID or business..."
+                    className="w-full bg-[#161822] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#a3e635] outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <Filter size={14} className="text-gray-500" />
+                  {['all', 'available', 'assigned', 'linked'].map((f) => (
+                    <button
+                      key={f}
+                      onClick={() => setCardFilter(f)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-all cursor-pointer ${
+                        cardFilter === f
+                          ? 'bg-[#a3e635] text-black font-extrabold'
+                          : 'bg-[#161822] text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Table */}
+              <div className="bg-[#0e1017] border border-white/10 rounded-3xl overflow-hidden shadow-xl">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-[#12141d] border-b border-white/10 text-gray-400 uppercase font-mono text-[10px] tracking-wider">
+                      <tr>
+                        <th className="py-3.5 px-4">Card ID</th>
+                        <th className="py-3.5 px-4">Status</th>
+                        <th className="py-3.5 px-4">Chip</th>
+                        <th className="py-3.5 px-4">Linked Business</th>
+                        <th className="py-3.5 px-4">Permanent URL (NTAG213)</th>
+                        <th className="py-3.5 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {filteredCards.map((c) => {
+                        const isAssigned = Boolean(c.business_id)
+                        return (
+                          <tr key={c.card_id} className="hover:bg-white/[0.02] transition-colors">
+                            {/* Card ID */}
+                            <td className="py-3.5 px-4 font-mono font-black text-white">
+                              #{c.card_id}
+                            </td>
+
+                            {/* Status Badge */}
+                            <td className="py-3.5 px-4">
+                              <span
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                  c.status === 'available' || !isAssigned
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                    : c.status === 'linked'
+                                    ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30'
+                                    : 'bg-[#a3e635]/10 text-[#a3e635] border border-[#a3e635]/30'
+                                }`}
+                              >
+                                <span className={`w-1.5 h-1.5 rounded-full ${
+                                  c.status === 'available' || !isAssigned
+                                    ? 'bg-emerald-400'
+                                    : c.status === 'linked'
+                                    ? 'bg-indigo-400'
+                                    : 'bg-[#a3e635]'
+                                }`} />
+                                {c.status || (isAssigned ? 'Assigned' : 'Available')}
+                              </span>
+                            </td>
+
+                            {/* Chip */}
+                            <td className="py-3.5 px-4 font-mono text-gray-400 text-[11px]">
+                              NTAG213
+                            </td>
+
+                            {/* Linked Business */}
+                            <td className="py-3.5 px-4">
+                              {isAssigned ? (
+                                <div>
+                                  <div className="font-bold text-white text-xs">
+                                    {c.business_name || 'Business'}
+                                  </div>
+                                  <div className="text-[10px] text-gray-500 font-mono">
+                                    {c.business_id}
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-gray-500 italic text-[11px]">
+                                  Unassigned / Ready
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Permanent URL */}
+                            <td className="py-3.5 px-4 font-mono text-[11px]">
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-300 truncate max-w-[200px]">
+                                  {c.permanent_url}
+                                </span>
+                                <button
+                                  onClick={() => handleCopyUrl(c.permanent_url, c.card_id)}
+                                  className="text-gray-500 hover:text-[#a3e635] transition-colors cursor-pointer shrink-0"
+                                  title="Copy URL"
+                                >
+                                  {copiedUrl === c.card_id ? (
+                                    <CheckCircle2 size={13} className="text-[#a3e635]" />
+                                  ) : (
+                                    <Copy size={13} />
+                                  )}
+                                </button>
+                              </div>
+                            </td>
+
+                            {/* Actions */}
+                            <td className="py-3.5 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {/* QR Code modal trigger */}
+                                <button
+                                  onClick={() => handleShowQrModal(c)}
+                                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors cursor-pointer"
+                                  title="View QR Code"
+                                >
+                                  <QrCode size={14} />
+                                </button>
+
+                                {/* Download QR PNG */}
+                                <button
+                                  onClick={() => downloadSingleQRPNG(c.permanent_url, c.card_id)}
+                                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors cursor-pointer"
+                                  title="Download High-Res PNG QR"
+                                >
+                                  <Download size={14} />
+                                </button>
+
+                                {/* Open Public Page */}
+                                <Link
+                                  to={`/c/${c.card_id}`}
+                                  target="_blank"
+                                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors"
+                                  title="Open Public Card"
+                                >
+                                  <ExternalLink size={14} />
+                                </Link>
+
+                                {/* Setup / Link / Unlink */}
+                                {isAssigned ? (
+                                  <button
+                                    onClick={() => handleUnlink(c.card_id)}
+                                    className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors cursor-pointer"
+                                    title="Unlink Card"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                ) : (
+                                  <Link
+                                    to={`/setup/${c.card_id}`}
+                                    className="px-2.5 py-1 rounded-lg bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold text-[10px] uppercase tracking-wider transition-all"
+                                  >
+                                    Setup
+                                  </Link>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ════════════════════════════════════════════════════════════
+              TAB 3: ALL BUSINESSES
+              ════════════════════════════════════════════════════════════ */}
+          {activeTab === 'businesses' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+                <div className="relative w-full sm:w-80">
+                  <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+                  <input
+                    type="text"
+                    value={bizSearch}
+                    onChange={(e) => setBizSearch(e.target.value)}
+                    placeholder="Search businesses..."
+                    className="w-full bg-[#161822] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#a3e635] outline-none"
+                  />
+                </div>
+
+                <button
+                  onClick={() => setActiveTab('create-biz')}
+                  className="bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold px-4 py-2.5 rounded-xl text-xs transition-all flex items-center gap-2 cursor-pointer shadow-md shrink-0"
+                >
+                  <PlusCircle size={15} />
+                  <span>Create New Business</span>
+                </button>
+              </div>
+
+              {businesses.length === 0 ? (
+                <div className="p-12 text-center bg-[#0e1017] rounded-3xl border border-white/10">
+                  <Building2 size={36} className="mx-auto text-gray-600 mb-3" />
+                  <h3 className="text-base font-bold text-white">No Businesses Yet</h3>
+                  <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
+                    Create your first business client to begin linking NFC cards.
+                  </p>
+                  <button
+                    onClick={() => setActiveTab('create-biz')}
+                    className="mt-4 bg-[#a3e635] text-black font-extrabold px-5 py-2.5 rounded-xl text-xs cursor-pointer inline-block"
+                  >
+                    Create Business Now
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {businesses
+                    .filter((b) => {
+                      const q = bizSearch.toLowerCase()
+                      return (
+                        (b.name && b.name.toLowerCase().includes(q)) ||
+                        (b.category && b.category.toLowerCase().includes(q)) ||
+                        (b.id && b.id.toLowerCase().includes(q))
+                      )
+                    })
+                    .map((b) => (
+                      <div
+                        key={b.id}
+                        className="bg-[#0e1017] border border-white/10 rounded-3xl p-6 shadow-xl flex flex-col justify-between hover:border-white/20 transition-all"
+                      >
+                        <div>
+                          {/* Header row */}
+                          <div className="flex items-start justify-between gap-3 mb-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-12 h-12 rounded-2xl bg-[#161822] border border-white/10 overflow-hidden flex items-center justify-center font-bold text-lg text-white">
+                                {b.logo_url ? (
+                                  <img
+                                    src={b.logo_url}
+                                    alt={b.name}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  (b.name || 'B').charAt(0)
+                                )}
+                              </div>
+                              <div>
+                                <h3 className="text-base font-bold text-white leading-tight">
+                                  {b.name}
+                                </h3>
+                                <span className="text-[10px] font-mono text-[#a3e635] bg-[#a3e635]/10 px-2 py-0.5 rounded border border-[#a3e635]/20 mt-1 inline-block">
+                                  {b.category || 'General'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <Link
+                              to={`/p/${b.id}`}
+                              target="_blank"
+                              className="text-gray-400 hover:text-white p-1.5 rounded-lg border border-white/10 transition-colors"
+                              title="View Landing Page"
+                            >
+                              <ExternalLink size={14} />
+                            </Link>
+                          </div>
+
+                          {/* Linked Cards Chips */}
+                          <div className="mt-4 pt-3 border-t border-white/10">
+                            <div className="text-[11px] font-semibold text-gray-400 mb-2 flex items-center justify-between">
+                              <span>Linked NFC Cards:</span>
+                              <span className="font-mono text-white font-bold">
+                                {b.linkedCards?.length || 0} Card{b.linkedCards?.length === 1 ? '' : 's'}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {b.linkedCards && b.linkedCards.length > 0 ? (
+                                b.linkedCards.map((cid) => (
+                                  <Link
+                                    key={cid}
+                                    to={`/c/${cid}`}
+                                    target="_blank"
+                                    className="font-mono text-[10px] font-bold bg-[#a3e635]/10 border border-[#a3e635]/30 text-[#bef264] px-2 py-0.5 rounded-lg hover:bg-[#a3e635] hover:text-black transition-colors"
+                                  >
+                                    #{cid}
+                                  </Link>
+                                ))
+                              ) : (
+                                <span className="text-gray-500 text-[11px] italic">
+                                  No cards linked yet
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Owner Access info */}
+                          <div className="mt-4 pt-3 border-t border-white/10 text-[11px] text-gray-400 space-y-1">
+                            <div className="flex justify-between">
+                              <span>Owner Access:</span>
+                              <span className={b.owner_access_enabled ? 'text-emerald-400 font-bold' : 'text-gray-500'}>
+                                {b.owner_access_enabled ? 'Enabled' : 'Disabled'}
+                              </span>
+                            </div>
+                            {b.owner_phone && (
+                              <div className="flex justify-between">
+                                <span>Owner Mobile:</span>
+                                <span className="font-mono text-gray-300">{b.owner_phone}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between gap-2">
+                          <button
+                            onClick={() => setEditBizModal({ ...b })}
+                            className="flex-1 bg-white/5 hover:bg-white/10 text-white font-semibold py-2 px-3 rounded-xl text-xs border border-white/10 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Edit size={13} />
+                            <span>Edit</span>
+                          </button>
+
+                          <button
+                            onClick={() =>
+                              setPinModal({
+                                businessId: b.id,
+                                businessName: b.name,
+                                newPin: b.owner_pin || '',
+                                newPhone: b.owner_phone || '',
+                              })
+                            }
+                            className="bg-white/5 hover:bg-white/10 text-gray-300 p-2 rounded-xl border border-white/10 transition-colors cursor-pointer"
+                            title="Reset Owner PIN"
+                          >
+                            <Key size={14} className="text-amber-400" />
+                          </button>
+
+                          <button
+                            onClick={() => handleDeleteBusiness(b.id, b.name)}
+                            className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 p-2 rounded-xl border border-rose-500/20 transition-colors cursor-pointer"
+                            title="Delete Business"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                 </div>
               )}
             </div>
+          )}
 
-            {/* RIGHT PANEL — Live Preview (hidden on bulk-cards to allow full width) */}
-            {activeTab !== 'bulk-cards' && (
-              <div className="lg:w-80 xl:w-96 flex-shrink-0">
-                <div className="sticky top-24">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 text-center">
-                    Live Preview
+          {/* ════════════════════════════════════════════════════════════
+              TAB 4: CREATE NEW BUSINESS
+              ════════════════════════════════════════════════════════════ */}
+          {activeTab === 'create-biz' && (
+            <div className="max-w-4xl mx-auto">
+              <div className="bg-[#0e1017] border border-white/10 rounded-3xl p-6 sm:p-8 shadow-xl">
+                <div className="mb-6">
+                  <span className="text-xs font-mono uppercase tracking-widest text-[#a3e635] bg-[#a3e635]/10 px-2.5 py-1 rounded-md border border-[#a3e635]/20 font-bold">
+                    New Brand Registration
+                  </span>
+                  <h3 className="text-2xl font-black text-white mt-2">
+                    Create New Business Profile
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Configure business details and optionally attach an available NFC card.
                   </p>
+                </div>
 
-                  {/* Phone mockup */}
-                  <div className="mx-auto" style={{ width: 280 }}>
-                    <div
-                      className="relative bg-gray-900 rounded-[2.5rem] shadow-2xl overflow-hidden"
-                      style={{ padding: '10px', paddingTop: '28px', paddingBottom: '28px' }}
-                    >
-                      {/* Notch */}
-                      <div className="absolute top-2 left-1/2 -translate-x-1/2 w-20 h-5 bg-gray-900 rounded-b-2xl z-10 flex items-center justify-center">
-                        <div className="w-2 h-2 bg-gray-700 rounded-full" />
-                      </div>
-
-                      {/* Screen */}
-                      <div
-                        className="relative bg-white rounded-[2rem] overflow-hidden"
-                        style={{ height: 520 }}
-                      >
-                        <MiniPreview formData={formData} />
-                      </div>
-
-                      {/* Home indicator */}
-                      <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 w-20 h-1 bg-gray-600 rounded-full" />
+                <form onSubmit={handleCreateBusinessSubmit} className="space-y-6 text-xs">
+                  {/* Step 1: Category */}
+                  <div>
+                    <label className="font-semibold text-gray-300 uppercase tracking-wider block mb-2">
+                      Step 1: Select Business Category *
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                      {BUSINESS_CATEGORIES.map((cat) => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setCreateCategory(cat)}
+                          className={`p-3 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                            createCategory === cat
+                              ? 'bg-[#a3e635]/15 border-[#a3e635] text-white font-bold'
+                              : 'bg-[#161822] border-white/10 text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
                     </div>
                   </div>
 
-                  <p className="text-center text-xs text-gray-400 mt-3">
-                    Updates as you type ✦
-                  </p>
+                  {/* Step 2: Details */}
+                  <div className="space-y-4 pt-4 border-t border-white/10">
+                    <label className="font-semibold text-gray-300 uppercase tracking-wider block">
+                      Step 2: Business Information
+                    </label>
+
+                    <div>
+                      <label className="text-[11px] text-gray-400 block mb-1">
+                        Business Name *
+                      </label>
+                      <input
+                        type="text"
+                        value={createName}
+                        onChange={(e) => setCreateName(e.target.value)}
+                        placeholder="e.g. Luxe Coiffure & Spa"
+                        className="w-full bg-[#161822] border border-white/10 rounded-xl px-4 py-2.5 text-white text-xs focus:border-[#a3e635] outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] text-gray-400 block mb-1">
+                        Logo Image URL
+                      </label>
+                      <input
+                        type="url"
+                        value={createLogo}
+                        onChange={(e) => setCreateLogo(e.target.value)}
+                        placeholder="https://example.com/logo.jpg"
+                        className="w-full bg-[#161822] border border-white/10 rounded-xl px-4 py-2.5 text-white text-xs focus:border-[#a3e635] outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] text-gray-400 block mb-1">
+                        Google Review URL
+                      </label>
+                      <input
+                        type="url"
+                        value={createReviewUrl}
+                        onChange={(e) => setCreateReviewUrl(e.target.value)}
+                        placeholder="https://g.page/r/your-review"
+                        className="w-full bg-[#161822] border border-white/10 rounded-xl px-4 py-2.5 text-white text-xs focus:border-[#a3e635] outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] text-gray-400 block mb-1">
+                        WhatsApp Number
+                      </label>
+                      <input
+                        type="tel"
+                        value={createWhatsApp}
+                        onChange={(e) => setCreateWhatsApp(e.target.value)}
+                        placeholder="+919876543210"
+                        className="w-full bg-[#161822] border border-white/10 rounded-xl px-4 py-2.5 text-white text-xs focus:border-[#a3e635] outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] text-gray-400 block mb-1">
+                        Instagram Profile URL
+                      </label>
+                      <input
+                        type="url"
+                        value={createInstagram}
+                        onChange={(e) => setCreateInstagram(e.target.value)}
+                        placeholder="https://instagram.com/yourbusiness"
+                        className="w-full bg-[#161822] border border-white/10 rounded-xl px-4 py-2.5 text-white text-xs focus:border-[#a3e635] outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] text-gray-400 block mb-1">
+                        Welcome Subtitle / Tagline
+                      </label>
+                      <input
+                        type="text"
+                        value={createWelcome}
+                        onChange={(e) => setCreateWelcome(e.target.value)}
+                        placeholder="Bespoke luxury experiences."
+                        className="w-full bg-[#161822] border border-white/10 rounded-xl px-4 py-2.5 text-white text-xs focus:border-[#a3e635] outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Step 3: Initial Card Selection */}
+                  <div className="pt-4 border-t border-white/10">
+                    <label className="font-semibold text-gray-300 uppercase tracking-wider block mb-2">
+                      Step 3: Initial NFC Card Assignment (Optional)
+                    </label>
+                    <select
+                      value={createCardId}
+                      onChange={(e) => setCreateCardId(e.target.value)}
+                      className="w-full bg-[#161822] border border-white/10 rounded-xl px-4 py-2.5 text-white text-xs focus:border-[#a3e635] outline-none"
+                    >
+                      <option value="">-- Assign card later --</option>
+                      {availableCards.map((c) => (
+                        <option key={c.card_id} value={c.card_id}>
+                          Card #{c.card_id} (Available)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Step 4: Owner Access */}
+                  <div className="pt-4 border-t border-white/10 space-y-3">
+                    <label className="font-semibold text-gray-300 uppercase tracking-wider block">
+                      Step 4: Owner Access Setup
+                    </label>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label
+                        onClick={() => setCreateOwnerAccess('A')}
+                        className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all ${
+                          createOwnerAccess === 'A'
+                            ? 'bg-[#a3e635]/10 border-[#a3e635] text-white'
+                            : 'bg-[#161822] border-white/10 text-gray-400'
+                        }`}
+                      >
+                        <div className="font-bold text-white text-xs">OPTION A: Owner Access</div>
+                        <p className="text-[10px] text-gray-400 mt-0.5">Mobile Number + PIN login</p>
+                      </label>
+
+                      <label
+                        onClick={() => setCreateOwnerAccess('B')}
+                        className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all ${
+                          createOwnerAccess === 'B'
+                            ? 'bg-[#a3e635]/10 border-[#a3e635] text-white'
+                            : 'bg-[#161822] border-white/10 text-gray-400'
+                        }`}
+                      >
+                        <div className="font-bold text-white text-xs">OPTION B: Skip Access</div>
+                        <p className="text-[10px] text-gray-400 mt-0.5">Admin-only control</p>
+                      </label>
+                    </div>
+
+                    {createOwnerAccess === 'A' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                        <div>
+                          <label className="text-[11px] text-gray-400 block mb-1">
+                            Owner Mobile Number *
+                          </label>
+                          <input
+                            type="tel"
+                            value={createOwnerPhone}
+                            onChange={(e) => setCreateOwnerPhone(e.target.value)}
+                            placeholder="+919876543210"
+                            className="w-full bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-white text-xs focus:border-[#a3e635] outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-gray-400 block mb-1">
+                            Owner PIN (4 to 6 digits) *
+                          </label>
+                          <input
+                            type="password"
+                            maxLength={6}
+                            value={createOwnerPin}
+                            onChange={(e) => setCreateOwnerPin(e.target.value)}
+                            placeholder="e.g. 1234"
+                            className="w-full bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-white text-xs focus:border-[#a3e635] outline-none"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-6 border-t border-white/10 flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={createSaving}
+                      className="bg-[#a3e635] hover:bg-[#bef264] text-black font-black py-3 px-8 rounded-2xl text-xs transition-all shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {createSaving ? (
+                        <span>Creating...</span>
+                      ) : (
+                        <>
+                          <CheckCircle2 size={16} />
+                          <span>Save &amp; Create Business</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* ════════════════════════════════════════════════════════════
+              TAB 5: LINK EXISTING BUSINESS
+              ════════════════════════════════════════════════════════════ */}
+          {activeTab === 'link-biz' && (
+            <div className="max-w-2xl mx-auto">
+              <div className="bg-[#0e1017] border border-white/10 rounded-3xl p-6 sm:p-8 shadow-xl">
+                <span className="text-xs font-mono uppercase tracking-widest text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-500/20 font-bold">
+                  Multi-Card Assignment
+                </span>
+                <h3 className="text-2xl font-black text-white mt-2">
+                  Link Card to Existing Business
+                </h3>
+                <p className="text-xs text-gray-400 mt-1 mb-6 leading-relaxed">
+                  Use this tool when a client purchases multiple physical cards. Linking additional cards ensures every card resolves to the identical business profile.
+                </p>
+
+                <form onSubmit={handleLinkCardSubmit} className="space-y-5 text-xs">
+                  <div>
+                    <label className="font-semibold text-gray-300 uppercase tracking-wider block mb-1.5">
+                      1. Select Available NFC Card *
+                    </label>
+                    <select
+                      value={selectedLinkCard}
+                      onChange={(e) => setSelectedLinkCard(e.target.value)}
+                      className="w-full bg-[#161822] border border-white/10 rounded-xl px-4 py-3 text-white text-xs focus:border-indigo-400 outline-none"
+                    >
+                      <option value="">-- Choose unassigned card --</option>
+                      {availableCards.map((c) => (
+                        <option key={c.card_id} value={c.card_id}>
+                          Card #{c.card_id} (Permanent URL: /c/{c.card_id})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-gray-300 uppercase tracking-wider block mb-1.5">
+                      2. Select Target Business *
+                    </label>
+                    <select
+                      value={selectedLinkBiz}
+                      onChange={(e) => setSelectedLinkBiz(e.target.value)}
+                      className="w-full bg-[#161822] border border-white/10 rounded-xl px-4 py-3 text-white text-xs focus:border-indigo-400 outline-none"
+                    >
+                      <option value="">-- Choose target business --</option>
+                      {businesses.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name} ({b.category}) — {b.cardCount || 0} card{b.cardCount === 1 ? '' : 's'} linked
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="pt-4 flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={linkSaving || !selectedLinkCard || !selectedLinkBiz}
+                      className="bg-indigo-500 hover:bg-indigo-400 text-white font-extrabold py-3 px-6 rounded-2xl text-xs transition-all shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {linkSaving ? (
+                        <span>Linking...</span>
+                      ) : (
+                        <>
+                          <Link2 size={16} />
+                          <span>Link Card to Business</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* ════════════════════════════════════════════════════════════
+              TAB 6: QR CODE MANAGEMENT & QR HUB
+              ════════════════════════════════════════════════════════════ */}
+          {activeTab === 'qr-hub' && (
+            <div className="space-y-8">
+              {/* Export Suite */}
+              <div className="p-6 rounded-3xl bg-[#0e1017] border border-white/10">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+                  <div>
+                    <h3 className="text-xl font-black text-white">
+                      Physical Card Manufacturing &amp; QR Export
+                    </h3>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Download individual high-res PNGs or batch export all 50 QR codes and programming CSV for PVC card production.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3 shrink-0">
+                    <button
+                      onClick={() => downloadAllCardsZip(cards, DEFAULT_BASE_URL, setZipProgress)}
+                      className="bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold px-4 py-2.5 rounded-xl text-xs transition-all flex items-center gap-2 cursor-pointer shadow-md"
+                    >
+                      <Archive size={15} />
+                      <span>
+                        {zipProgress
+                          ? `Packaging (${zipProgress.current}/${zipProgress.total})...`
+                          : 'Download All 50 QRs (ZIP)'}
+                      </span>
+                    </button>
+
+                    <button
+                      onClick={() => downloadCSVFile(cards, DEFAULT_BASE_URL)}
+                      className="bg-white/10 hover:bg-white/15 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition-all flex items-center gap-2 cursor-pointer border border-white/10"
+                    >
+                      <FileSpreadsheet size={15} />
+                      <span>Export Manifest CSV</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                  <div className="p-4 rounded-2xl bg-[#141620] border border-white/10">
+                    <span className="text-gray-400">Total Cards in Batch:</span>
+                    <div className="text-2xl font-black text-white font-mono mt-1">50 Cards</div>
+                    <span className="text-[10px] text-gray-500">Cards 001 to 050</span>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-[#141620] border border-white/10">
+                    <span className="text-gray-400">NFC Chip Target:</span>
+                    <div className="text-2xl font-black text-[#a3e635] font-mono mt-1">NTAG213</div>
+                    <span className="text-[10px] text-gray-500">144 Bytes standard PVC tag</span>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-[#141620] border border-white/10">
+                    <span className="text-gray-400">QR Resolution:</span>
+                    <div className="text-2xl font-black text-indigo-400 font-mono mt-1">640 &times; 740 px</div>
+                    <span className="text-[10px] text-gray-500">High-Res PNG with bottom metadata label</span>
+                  </div>
                 </div>
               </div>
-            )}
-          </div>
-        )}
+
+              {/* QR Hub Integration Section */}
+              <div className="p-6 sm:p-8 rounded-3xl bg-[#0e1017] border border-white/10 space-y-6">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center shrink-0 text-indigo-400">
+                    <QrCode size={24} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono uppercase tracking-widest text-indigo-400 bg-indigo-500/10 px-2.5 py-0.5 rounded border border-indigo-500/20 font-bold">
+                        Dynamic QR Integration
+                      </span>
+                    </div>
+                    <h3 className="text-xl font-black text-white mt-1">
+                      QR Hub API Integration &amp; Dynamic QR Sync
+                    </h3>
+                    <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                      QR Hub allows remote redirection syncing for physical dynamic QR codes. If you have an active QR Hub plan and API key, enter your credentials below. The platform maintains permanent URLs (<span className="font-mono text-[#a3e635]">/c/001</span> to <span className="font-mono text-[#a3e635]">/c/050</span>) so that physical PVC cards remain 100% functional even if external API connectivity changes.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-[#141620] border border-white/10 space-y-3 text-xs">
+                  <h4 className="font-bold text-white flex items-center gap-2">
+                    <CheckCircle2 size={15} className="text-[#a3e635]" />
+                    <span>Current Architecture Status</span>
+                  </h4>
+                  <ul className="space-y-1.5 text-gray-400 list-disc list-inside">
+                    <li>All 50 physical cards are mapped to permanent URLs: <code className="text-white">https://nfc-sage.vercel.app/c/:cardId</code></li>
+                    <li>NFC chips and QR codes use the exact same permanent URL structure.</li>
+                    <li>Card assignments change dynamically in your database without altering physical QR codes or chips.</li>
+                  </ul>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div>
+                    <label className="font-semibold text-gray-300 block mb-1">
+                      QR Hub API Key
+                    </label>
+                    <input
+                      type="password"
+                      value={qrhubApiKey}
+                      onChange={(e) => setQrhubApiKey(e.target.value)}
+                      placeholder="Enter your QR Hub secret API key"
+                      className="w-full bg-[#161822] border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-indigo-400 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-gray-300 block mb-1">
+                      QR Hub Endpoint URL
+                    </label>
+                    <input
+                      type="url"
+                      value={qrhubApiUrl}
+                      onChange={(e) => setQrhubApiUrl(e.target.value)}
+                      placeholder="https://api.qrhub.com/v1"
+                      className="w-full bg-[#161822] border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-indigo-400 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <span className="text-[11px] text-gray-500">
+                    Stored securely in your local environment. Never exposed to public visitors.
+                  </span>
+                  <button
+                    onClick={() => {
+                      localStorage.setItem('qrhub_api_key', qrhubApiKey.trim())
+                      localStorage.setItem('qrhub_api_url', qrhubApiUrl.trim())
+                      setQrhubSaved(true)
+                      setTimeout(() => setQrhubSaved(false), 3000)
+                    }}
+                    className="bg-indigo-500 hover:bg-indigo-400 text-white font-bold py-2.5 px-6 rounded-xl text-xs transition-all cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Save size={14} />
+                    <span>{qrhubSaved ? 'Saved!' : 'Save Credentials'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </main>
 
-      {/* Create Page Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 animate-bounce-in">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-bold text-gray-900">Create New Page</h2>
+      {/* ── MODAL: EDIT BUSINESS DETAILS (STRICT: Name, Logo, Review, WhatsApp, Instagram, Toggles ONLY) ── */}
+      {editBizModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-[#0e1017] border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-4">
+              <h3 className="text-lg font-black text-white">Edit Business Details</h3>
               <button
-                onClick={() => { setShowCreateModal(false); setCreateError('') }}
-                className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-gray-100 text-gray-500 transition-colors"
+                onClick={() => setEditBizModal(null)}
+                className="text-gray-400 hover:text-white p-1 rounded-lg"
               >
-                <X size={18} />
+                &times;
               </button>
             </div>
 
-            {createError && (
-              <div className="mb-4 flex items-center gap-2 bg-red-50 border border-red-100 text-red-700 rounded-xl px-3 py-2.5 text-sm">
-                <AlertCircle size={15} />
-                {createError}
+            <form onSubmit={handleSaveEditedBusiness} className="space-y-4 text-xs">
+              <div>
+                <label className="font-semibold text-gray-300 block mb-1">
+                  Business Name *
+                </label>
+                <input
+                  type="text"
+                  value={editBizModal.name || ''}
+                  onChange={(e) => setEditBizModal({ ...editBizModal, name: e.target.value })}
+                  className="w-full bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-white focus:border-[#a3e635] outline-none"
+                />
               </div>
-            )}
 
-            <div className="flex flex-col gap-4">
-              <FieldGroup label="Page ID (URL slug)">
+              <div>
+                <label className="font-semibold text-gray-300 block mb-1">
+                  Category
+                </label>
+                <select
+                  value={editBizModal.category || 'Other'}
+                  onChange={(e) => setEditBizModal({ ...editBizModal, category: e.target.value })}
+                  className="w-full bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-white focus:border-[#a3e635] outline-none"
+                >
+                  {BUSINESS_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="font-semibold text-gray-300 block mb-1">
+                  Logo URL
+                </label>
+                <input
+                  type="url"
+                  value={editBizModal.logo_url || ''}
+                  onChange={(e) => setEditBizModal({ ...editBizModal, logo_url: e.target.value })}
+                  className="w-full bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-white focus:border-[#a3e635] outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-gray-300 block mb-1">
+                  Welcome Subtitle
+                </label>
                 <input
                   type="text"
-                  value={newPageId}
-                  onChange={(e) => setNewPageId(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                  placeholder="my-business"
-                  className={inputCls()}
+                  value={editBizModal.welcome_message || ''}
+                  onChange={(e) => setEditBizModal({ ...editBizModal, welcome_message: e.target.value })}
+                  className="w-full bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-white focus:border-[#a3e635] outline-none"
                 />
-                <p className="text-xs text-gray-400">Will be accessible at /p/{newPageId || 'my-business'}</p>
-              </FieldGroup>
+              </div>
 
-              <FieldGroup label="Business Name">
-                <input
-                  type="text"
-                  value={newBusinessName}
-                  onChange={(e) => setNewBusinessName(e.target.value)}
-                  placeholder="Acme Corp"
-                  className={inputCls()}
-                />
-              </FieldGroup>
-            </div>
+              {/* 3 Buttons with Toggles */}
+              <div className="space-y-3 pt-3 border-t border-white/10">
+                <span className="text-[11px] font-mono uppercase text-[#a3e635] font-bold block">
+                  Customer Social Buttons
+                </span>
 
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => { setShowCreateModal(false); setCreateError('') }}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 font-medium text-sm transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreatePage}
-                disabled={creating}
-                className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
-              >
-                {creating ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
-                {creating ? 'Creating...' : 'Create'}
-              </button>
-            </div>
+                <div className="p-3 rounded-xl bg-[#141620] border border-white/10 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-white font-semibold">1. Google Review URL</span>
+                    <label className="flex items-center gap-1.5 text-[11px] text-gray-400 cursor-pointer">
+                      <span>Enabled</span>
+                      <input
+                        type="checkbox"
+                        checked={editBizModal.google_review_enabled !== false}
+                        onChange={(e) => setEditBizModal({ ...editBizModal, google_review_enabled: e.target.checked })}
+                        className="accent-[#a3e635]"
+                      />
+                    </label>
+                  </div>
+                  <input
+                    type="url"
+                    value={editBizModal.google_review_url || ''}
+                    onChange={(e) => setEditBizModal({ ...editBizModal, google_review_url: e.target.value })}
+                    className="w-full bg-[#1b1e2c] border border-white/10 rounded-lg px-2.5 py-1.5 text-white"
+                  />
+                </div>
+
+                <div className="p-3 rounded-xl bg-[#141620] border border-white/10 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-white font-semibold">2. WhatsApp Number</span>
+                    <label className="flex items-center gap-1.5 text-[11px] text-gray-400 cursor-pointer">
+                      <span>Enabled</span>
+                      <input
+                        type="checkbox"
+                        checked={editBizModal.whatsapp_enabled !== false}
+                        onChange={(e) => setEditBizModal({ ...editBizModal, whatsapp_enabled: e.target.checked })}
+                        className="accent-[#a3e635]"
+                      />
+                    </label>
+                  </div>
+                  <input
+                    type="tel"
+                    value={editBizModal.whatsapp_number || ''}
+                    onChange={(e) => setEditBizModal({ ...editBizModal, whatsapp_number: e.target.value })}
+                    className="w-full bg-[#1b1e2c] border border-white/10 rounded-lg px-2.5 py-1.5 text-white"
+                  />
+                </div>
+
+                <div className="p-3 rounded-xl bg-[#141620] border border-white/10 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-white font-semibold">3. Instagram Profile URL</span>
+                    <label className="flex items-center gap-1.5 text-[11px] text-gray-400 cursor-pointer">
+                      <span>Enabled</span>
+                      <input
+                        type="checkbox"
+                        checked={editBizModal.instagram_enabled !== false}
+                        onChange={(e) => setEditBizModal({ ...editBizModal, instagram_enabled: e.target.checked })}
+                        className="accent-[#a3e635]"
+                      />
+                    </label>
+                  </div>
+                  <input
+                    type="url"
+                    value={editBizModal.instagram_url || ''}
+                    onChange={(e) => setEditBizModal({ ...editBizModal, instagram_url: e.target.value })}
+                    className="w-full bg-[#1b1e2c] border border-white/10 rounded-lg px-2.5 py-1.5 text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-white/10 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditBizModal(null)}
+                  className="px-4 py-2 rounded-xl text-gray-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold px-6 py-2 rounded-xl"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* Delete Confirm Modal */}
-      {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 animate-bounce-in">
-            <div className="flex flex-col items-center text-center mb-5">
-              <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center mb-3">
-                <Trash2 size={24} className="text-red-600" />
-              </div>
-              <h2 className="text-lg font-bold text-gray-900 mb-1">Delete Page?</h2>
-              <p className="text-sm text-gray-500">
-                Are you sure you want to delete{' '}
-                <span className="font-semibold text-red-600">{deleteConfirm}</span>?
-                This action cannot be undone.
-              </p>
+      {/* ── MODAL: RESET OWNER PIN ── */}
+      {pinModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-[#0e1017] border border-white/10 rounded-3xl p-6 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4">
+              <h3 className="text-base font-bold text-white">Reset Owner PIN</h3>
+              <button onClick={() => setPinModal(null)} className="text-gray-400 hover:text-white">&times;</button>
             </div>
 
-            <div className="flex gap-3">
+            <p className="text-xs text-gray-400 mb-4">
+              Assign or reset login credentials for <span className="text-white font-bold">{pinModal.businessName}</span>.
+            </p>
+
+            <form onSubmit={handleSavePin} className="space-y-3 text-xs">
+              <div>
+                <label className="text-gray-300 block mb-1">Owner Mobile Number</label>
+                <input
+                  type="tel"
+                  value={pinModal.newPhone}
+                  onChange={(e) => setPinModal({ ...pinModal, newPhone: e.target.value })}
+                  placeholder="+919876543210"
+                  className="w-full bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-white"
+                />
+              </div>
+
+              <div>
+                <label className="text-gray-300 block mb-1">New PIN (4-6 digits)</label>
+                <input
+                  type="password"
+                  maxLength={6}
+                  value={pinModal.newPin}
+                  onChange={(e) => setPinModal({ ...pinModal, newPin: e.target.value })}
+                  placeholder="Enter new PIN"
+                  className="w-full bg-[#161822] border border-white/10 rounded-xl px-3 py-2 text-white tracking-widest font-mono"
+                />
+              </div>
+
+              <div className="pt-3 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPinModal(null)}
+                  className="px-3 py-1.5 text-gray-400"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-amber-400 hover:bg-amber-300 text-black font-extrabold px-4 py-1.5 rounded-xl"
+                >
+                  Update PIN
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: QR CODE ZOOM ── */}
+      {qrModalCard && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-[#0e1017] border border-white/10 rounded-3xl p-6 shadow-2xl text-center">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4">
+              <h3 className="text-sm font-mono font-bold text-white">NFC Card #{qrModalCard.card_id}</h3>
+              <button onClick={() => setQrModalCard(null)} className="text-gray-400 hover:text-white">&times;</button>
+            </div>
+
+            {qrModalDataUrl && (
+              <div className="p-4 bg-white rounded-2xl inline-block my-2 shadow-inner">
+                <img src={qrModalDataUrl} alt="QR" className="w-56 h-56 mx-auto object-contain" />
+              </div>
+            )}
+
+            <p className="font-mono text-[11px] text-[#a3e635] mt-2 truncate">
+              {qrModalCard.permanent_url}
+            </p>
+
+            <div className="mt-4 pt-3 border-t border-white/10 flex gap-2">
               <button
-                onClick={() => setDeleteConfirm(null)}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 font-medium text-sm transition-colors"
+                onClick={() => downloadSingleQRPNG(qrModalCard.permanent_url, qrModalCard.card_id)}
+                className="flex-1 bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer"
               >
-                Cancel
+                <Download size={14} />
+                <span>Download PNG</span>
               </button>
               <button
-                onClick={() => handleDeletePage(deleteConfirm)}
-                disabled={deleting}
-                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
+                onClick={() => setQrModalCard(null)}
+                className="px-4 py-2 rounded-xl text-xs text-gray-400 hover:text-white border border-white/10"
               >
-                {deleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
-                {deleting ? 'Deleting...' : 'Delete'}
+                Close
               </button>
             </div>
           </div>
