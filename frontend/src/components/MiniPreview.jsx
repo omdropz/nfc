@@ -49,9 +49,42 @@ export default function MiniPreview({ formData }) {
   const settings = formData || {}
   const font = settings.font || 'Poppins'
 
-  const googleEnabled = settings.google_review_enabled !== false
-  const whatsappEnabled = settings.whatsapp_enabled !== false
-  const instagramEnabled = settings.instagram_enabled !== false
+  const cardType = (settings.card_type || '3in1').toLowerCase()
+
+  const googleUrl = (settings.google_review_url || (cardType === 'google_review' ? settings.destination_url : '') || '').trim()
+  const rawWhatsApp = (settings.whatsapp_number || (cardType === 'whatsapp' ? (settings.destination_url || settings.whatsapp_number) : '') || '').trim()
+  const instagramUrl = (settings.instagram_url || (cardType === 'instagram' ? settings.destination_url : '') || '').trim()
+
+  const hasGoogle = Boolean(googleUrl)
+  const hasWhatsapp = Boolean(rawWhatsApp)
+  const hasInstagram = Boolean(instagramUrl)
+
+  const isGoogleToggled = settings.google_review_enabled !== false
+  const isWhatsappToggled = settings.whatsapp_enabled !== false
+  const isInstagramToggled = settings.instagram_enabled !== false
+
+  let googleEnabled = false
+  let whatsappEnabled = false
+  let instagramEnabled = false
+
+  if (cardType === 'whatsapp') {
+    whatsappEnabled = isWhatsappToggled && hasWhatsapp
+    googleEnabled = false
+    instagramEnabled = false
+  } else if (cardType === 'instagram') {
+    instagramEnabled = isInstagramToggled && hasInstagram
+    googleEnabled = false
+    whatsappEnabled = false
+  } else if (cardType === 'google_review') {
+    googleEnabled = isGoogleToggled && hasGoogle
+    whatsappEnabled = false
+    instagramEnabled = false
+  } else {
+    // 3-in-1: Show platform ONLY if toggled on AND destination URL/number is non-empty
+    googleEnabled = isGoogleToggled && hasGoogle
+    whatsappEnabled = isWhatsappToggled && hasWhatsapp
+    instagramEnabled = isInstagramToggled && hasInstagram
+  }
 
   return (
     <div
@@ -224,6 +257,12 @@ export default function MiniPreview({ formData }) {
                 </div>
               </div>
               <ArrowUpRight size={12} className="text-white/70" />
+            </div>
+          )}
+
+          {!googleEnabled && !whatsappEnabled && !instagramEnabled && (
+            <div className="py-2.5 px-3 rounded-xl border border-dashed border-white/20 text-center text-white/40 text-[9px]">
+              No active buttons
             </div>
           )}
         </div>
