@@ -118,24 +118,33 @@ export async function getNextCardId() {
 export async function initBusinessStore(baseUrl = DEFAULT_BASE_URL) {
   const existingCards = await idbListCards()
   if (existingCards && existingCards.length > 0) {
+    // Ensure Card 001 is initialized as Instagram Single QR test card if currently unassigned
+    const card001 = existingCards.find((c) => String(c.card_id) === '001')
+    if (card001 && !card001.business_id && !card001.destination_url && card001.card_type === '3in1') {
+      card001.card_type = 'instagram'
+      card001.business_name = 'Test Business'
+      await idbSaveCard(card001)
+    }
     return existingCards
   }
 
-  // Fresh setup: seed initial batch
+  // Fresh setup: seed initial batch (001 to 050)
   const initialCards = []
   const supabase = getSupabaseClient()
 
   for (let i = 1; i <= 50; i++) {
     const cardId = formatCardId(i)
     const permanentUrl = generateCardUrl(cardId, baseUrl, 'p')
+    const isTestCard = cardId === '001'
+
     const newCard = {
       card_id: cardId,
       card_number: cardId,
-      card_type: '3in1',
+      card_type: isTestCard ? 'instagram' : '3in1',
       status: 'available', // 'available' | 'assigned' | 'linked' | 'active'
       nfc_status: 'not_programmed', // 'not_programmed' | 'programmed' | 'tested'
       business_id: null,
-      business_name: '',
+      business_name: isTestCard ? 'Test Business' : '',
       destination_url: '',
       whatsapp_number: '',
       whatsapp_message: '',
@@ -397,6 +406,26 @@ export async function updateSingleQrCard(cardId, updates) {
 
   await idbSaveCard(updated)
 
+  // Also sync legacy page store for immediate resolution
+  try {
+    const legacyPage = {
+      page_id: formattedId,
+      card_id: formattedId,
+      card_number: formattedId,
+      card_type: effectiveType,
+      destination_url: finalDestination,
+      business_name: updated.business_name,
+      whatsapp_number: updated.whatsapp_number,
+      whatsapp_message: updated.whatsapp_message,
+      status: updated.status,
+      footer_brand: 'OMDROPZ',
+      bg_color: '#050507',
+      btn_color: '#a3e635',
+      updated_at: now,
+    }
+    await idbSavePage(legacyPage)
+  } catch {}
+
   const supabase = getSupabaseClient()
   if (supabase) {
     try {
@@ -412,9 +441,42 @@ export async function updateSingleQrCard(cardId, updates) {
         detail: { cardId: formattedId, card: updated },
       })
     )
+    window.dispatchEvent(
+      new CustomEvent('nfc_page_updated', {
+        detail: { pageId: formattedId, page: updated },
+      })
+    )
   }
 
   return updated
+}
+
+/**
+ * Sync all local cards and businesses to Supabase cloud database
+ */
+export async function syncAllToSupabase() {
+  const supabase = getSupabaseClient()
+  if (!supabase) throw new Error('Supabase is not configured')
+
+  const allCards = await idbListCards()
+  const allBiz = await idbListBusinesses()
+
+  let cardsSynced = 0
+  let bizSynced = 0
+
+  if (allBiz && allBiz.length > 0) {
+    const { error: bErr } = await supabase.from('businesses').upsert(allBiz, { onConflict: 'id' })
+    if (bErr) throw new Error(`Failed to sync businesses: ${bErr.message}`)
+    bizSynced = allBiz.length
+  }
+
+  if (allCards && allCards.length > 0) {
+    const { error: cErr } = await supabase.from('nfc_cards').upsert(allCards, { onConflict: 'card_id' })
+    if (cErr) throw new Error(`Failed to sync cards: ${cErr.message}`)
+    cardsSynced = allCards.length
+  }
+
+  return { cardsSynced, bizSynced }
 }
 
 /**

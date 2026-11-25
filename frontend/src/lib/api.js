@@ -248,6 +248,81 @@ export const getPage = async (pageId) => {
   const supabase = getSupabaseClient()
   if (supabase) {
     try {
+      if (isCardNumber) {
+        const { data: supaCard, error: cardErr } = await supabase
+          .from('nfc_cards')
+          .select('*')
+          .eq('card_id', normalizedCardId)
+          .single()
+
+        if (supaCard && !cardErr) {
+          await idbSaveCard(supaCard)
+          const cardType = supaCard.card_type || '3in1'
+          const isSingleQr = cardType !== '3in1' || Boolean(supaCard.destination_url)
+
+          if (isSingleQr && (supaCard.destination_url || cardType !== '3in1')) {
+            return {
+              success: true,
+              page: {
+                page_id: normalizedCardId,
+                card_id: normalizedCardId,
+                card_number: normalizedCardId,
+                card_type: cardType,
+                destination_url: supaCard.destination_url || '',
+                business_name: supaCard.business_name || '',
+                whatsapp_number: supaCard.whatsapp_number || '',
+                whatsapp_message: supaCard.whatsapp_message || '',
+                status: supaCard.status || (supaCard.destination_url ? 'active' : 'available'),
+                nfc_status: supaCard.nfc_status || 'not_programmed',
+                permanent_url: supaCard.permanent_url,
+                nfc_url: supaCard.nfc_url,
+                footer_brand: 'OMDROPZ',
+                bg_color: '#050507',
+                btn_color: '#a3e635',
+              },
+            }
+          }
+
+          if (supaCard.business_id) {
+            const { data: supaBiz } = await supabase
+              .from('businesses')
+              .select('*')
+              .eq('id', supaCard.business_id)
+              .single()
+            if (supaBiz) {
+              await idbSaveBusiness(supaBiz)
+              return {
+                success: true,
+                page: {
+                  page_id: normalizedCardId,
+                  card_id: normalizedCardId,
+                  card_number: normalizedCardId,
+                  card_type: '3in1',
+                  business_id: supaBiz.id,
+                  business_name: supaBiz.name,
+                  welcome_message: supaBiz.welcome_message || '',
+                  footer_brand: 'OMDROPZ',
+                  logo_url: supaBiz.logo_url || '',
+                  google_review_enabled: supaBiz.google_review_enabled !== false,
+                  google_review_url: supaBiz.google_review_url || '',
+                  google_review_text: supaBiz.google_review_text || 'Google Review',
+                  whatsapp_enabled: supaBiz.whatsapp_enabled !== false,
+                  whatsapp_number: supaBiz.whatsapp_number || '',
+                  whatsapp_message: supaBiz.whatsapp_message || 'Hello! I found your NFC card.',
+                  whatsapp_text: supaBiz.whatsapp_text || 'Chat on WhatsApp',
+                  instagram_enabled: supaBiz.instagram_enabled !== false,
+                  instagram_url: supaBiz.instagram_url || '',
+                  instagram_text: supaBiz.instagram_text || 'Follow on Instagram',
+                  bg_color: '#050507',
+                  btn_color: '#a3e635',
+                  status: supaCard.status || 'assigned',
+                },
+              }
+            }
+          }
+        }
+      }
+
       const { data, error } = await supabase
         .from('business_pages')
         .select('*')
@@ -257,7 +332,9 @@ export const getPage = async (pageId) => {
         await idbSavePage(data)
         return { success: true, page: data }
       }
-    } catch {}
+    } catch (err) {
+      console.warn('Supabase getPage lookup warning:', err)
+    }
   }
 
   // 4. Try IndexedDB Persistent Database legacy store
@@ -269,13 +346,17 @@ export const getPage = async (pageId) => {
   // 5. Auto-provision bulk card records (001 to 050) in Available state if not in store yet
   if (isCardNumber) {
     const cardId = normalizedCardId
+    const isCard001 = cardId === '001'
     const availableCard = {
       id: `card-${cardId}`,
       page_id: cardId,
+      card_id: cardId,
       card_number: cardId,
+      card_type: isCard001 ? 'instagram' : '3in1',
       status: 'available',
       is_bulk: true,
-      business_name: '',
+      business_name: isCard001 ? 'Test Business' : '',
+      destination_url: '',
       welcome_message: '',
       footer_brand: 'OMDROPZ',
       google_review_enabled: true,

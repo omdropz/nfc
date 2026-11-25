@@ -141,8 +141,10 @@ export default function LandingPage({ defaultPageId = 'omdropz' }) {
       try {
         recordCardScan(pageData.card_id)
       } catch {}
+      const raw = pageData.destination_url.trim()
+      const targetUrl = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
       const timer = setTimeout(() => {
-        window.location.replace(pageData.destination_url)
+        window.location.replace(targetUrl)
       }, 80)
       return () => clearTimeout(timer)
     }
@@ -301,7 +303,7 @@ export default function LandingPage({ defaultPageId = 'omdropz' }) {
             </p>
 
             <a
-              href={pageData.destination_url}
+              href={/^https?:\/\//i.test(pageData.destination_url.trim()) ? pageData.destination_url.trim() : `https://${pageData.destination_url.trim()}`}
               onClick={playHapticClick}
               className="w-full inline-flex items-center justify-center gap-2 bg-lime-400 hover:bg-lime-300 text-black font-black py-4 px-6 rounded-2xl transition-all shadow-xl shadow-lime-400/20 active:scale-[0.98] text-base group"
             >

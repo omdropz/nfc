@@ -42,6 +42,7 @@ import {
   Sliders,
   Send,
   MessageCircle,
+  Database,
 } from 'lucide-react'
 import {
   getAllCards,
@@ -64,10 +65,16 @@ import {
   formatWhatsAppChatUrl,
   formatInstagramUrl,
   formatGoogleReviewUrl,
+  syncAllToSupabase,
   QR_CARD_TYPES,
   BUSINESS_CATEGORIES,
   DEFAULT_BASE_URL,
 } from '../lib/businessStore.js'
+import {
+  getSupabaseCredentials,
+  saveSupabaseCredentials,
+  testSupabaseConnection,
+} from '../lib/supabase.js'
 import {
   generateQRDataURL,
   generateQRSVG,
@@ -206,6 +213,16 @@ export default function AdminDashboard() {
   // ── NEW: Bulk ZIP Options Modal ──
   const [zipModalOpen, setZipModalOpen] = useState(false)
 
+  // ── Cloud Database / Supabase Sync Modal State ──
+  const [dbModalOpen, setDbModalOpen] = useState(false)
+  const [dbUrl, setDbUrl] = useState('')
+  const [dbKey, setDbKey] = useState('')
+  const [dbTesting, setDbTesting] = useState(false)
+  const [dbSyncing, setDbSyncing] = useState(false)
+  const [dbStatusMsg, setDbStatusMsg] = useState(null)
+  const [hasSupaCreds, setHasSupaCreds] = useState(false)
+  const [copiedSql, setCopiedSql] = useState(false)
+
   const showToast = (msg) => {
     setToastMsg(msg)
     setTimeout(() => setToastMsg(''), 4000)
@@ -221,11 +238,135 @@ export default function AdminDashboard() {
       setBusinesses(allBiz)
       const nId = await getNextCardId()
       setNextId(nId)
+
+      const creds = getSupabaseCredentials()
+      setHasSupaCreds(Boolean(creds.url && creds.anonKey))
     } catch (err) {
       console.error('Error loading dashboard data:', err)
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleOpenDbModal = () => {
+    const creds = getSupabaseCredentials()
+    setDbUrl(creds.url)
+    setDbKey(creds.anonKey)
+    setDbStatusMsg(null)
+    setDbModalOpen(true)
+  }
+
+  const handleTestAndSaveDb = async (e) => {
+    e.preventDefault()
+    setDbTesting(true)
+    setDbStatusMsg(null)
+    try {
+      const res = await testSupabaseConnection(dbUrl, dbKey)
+      if (res.ok) {
+        saveSupabaseCredentials(dbUrl, dbKey)
+        setHasSupaCreds(true)
+        setDbStatusMsg({ ok: true, text: 'Supabase connected! Syncing local cards to cloud...' })
+        const syncRes = await syncAllToSupabase()
+        setDbStatusMsg({
+          ok: true,
+          text: `Connected! ${syncRes.cardsSynced} cards and ${syncRes.bizSynced} businesses synced to Supabase cloud.`,
+        })
+        await reloadData()
+        showToast('Supabase Cloud Database connected and synced!')
+      } else {
+        setDbStatusMsg({ ok: false, text: res.message })
+      }
+    } catch (err) {
+      setDbStatusMsg({ ok: false, text: err.message })
+    } finally {
+      setDbTesting(false)
+    }
+  }
+
+  const handleDisconnectDb = () => {
+    if (window.confirm('Disconnect Supabase? Local IndexedDB data will remain intact.')) {
+      saveSupabaseCredentials('', '')
+      setHasSupaCreds(false)
+      setDbUrl('')
+      setDbKey('')
+      setDbStatusMsg(null)
+      showToast('Supabase disconnected. Using local database.')
+    }
+  }
+
+  const handleManualSyncNow = async () => {
+    setDbSyncing(true)
+    try {
+      const syncRes = await syncAllToSupabase()
+      showToast(`Cloud Sync Complete: ${syncRes.cardsSynced} cards synced to Supabase!`)
+      setDbStatusMsg({
+        ok: true,
+        text: `Synced ${syncRes.cardsSynced} cards and ${syncRes.bizSynced} businesses to Supabase successfully.`,
+      })
+    } catch (err) {
+      alert(`Sync failed: ${err.message}`)
+    } finally {
+      setDbSyncing(false)
+    }
+  }
+
+  const handleCopySqlSchema = () => {
+    const sql = `-- Supabase Schema for NFC Cards
+CREATE TABLE IF NOT EXISTS businesses (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT 'My Business',
+  category TEXT DEFAULT 'Other',
+  logo_url TEXT DEFAULT '',
+  welcome_message TEXT DEFAULT 'Welcome! Tap a button to connect with us.',
+  footer_brand TEXT DEFAULT 'OMDROPZ',
+  google_review_enabled BOOLEAN DEFAULT true,
+  google_review_url TEXT DEFAULT '',
+  google_review_text TEXT DEFAULT 'Google Review',
+  whatsapp_enabled BOOLEAN DEFAULT true,
+  whatsapp_number TEXT DEFAULT '',
+  whatsapp_message TEXT DEFAULT 'Hello! I found your NFC card.',
+  whatsapp_text TEXT DEFAULT 'Chat on WhatsApp',
+  instagram_enabled BOOLEAN DEFAULT true,
+  instagram_url TEXT DEFAULT '',
+  instagram_text TEXT DEFAULT 'Follow on Instagram',
+  owner_phone TEXT DEFAULT '',
+  owner_pin TEXT DEFAULT '',
+  owner_access_enabled BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS nfc_cards (
+  card_id TEXT PRIMARY KEY,
+  card_number TEXT NOT NULL,
+  card_type TEXT NOT NULL DEFAULT '3in1',
+  status TEXT NOT NULL DEFAULT 'available',
+  nfc_status TEXT NOT NULL DEFAULT 'not_programmed',
+  business_id TEXT REFERENCES businesses(id) ON DELETE SET NULL,
+  business_name TEXT,
+  destination_url TEXT,
+  whatsapp_number TEXT,
+  whatsapp_message TEXT,
+  scan_count INTEGER DEFAULT 0,
+  last_scanned_at TIMESTAMPTZ,
+  permanent_url TEXT NOT NULL,
+  nfc_url TEXT NOT NULL,
+  qrhub_qr_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE businesses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE nfc_cards ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public read businesses" ON businesses FOR SELECT USING (true);
+CREATE POLICY "Public read nfc_cards" ON nfc_cards FOR SELECT USING (true);
+CREATE POLICY "Public write nfc_cards" ON nfc_cards FOR ALL USING (true);
+CREATE POLICY "Public write businesses" ON businesses FOR ALL USING (true);`
+
+    navigator.clipboard.writeText(sql)
+    setCopiedSql(true)
+    setTimeout(() => setCopiedSql(false), 3000)
+    showToast('SQL Schema copied to clipboard!')
   }
 
   useEffect(() => {
@@ -892,6 +1033,18 @@ export default function AdminDashboard() {
 
         {/* Footer */}
         <div className="p-4 border-t border-white/10 space-y-2">
+          <button
+            onClick={handleOpenDbModal}
+            className="w-full flex items-center justify-between text-xs text-gray-300 hover:text-white px-3 py-2 rounded-xl transition-colors hover:bg-white/5 cursor-pointer"
+            title="Configure Supabase Cloud Database"
+          >
+            <span className="flex items-center gap-2">
+              <Database size={14} className={hasSupaCreds ? 'text-emerald-400' : 'text-amber-400'} />
+              <span>Database Sync</span>
+            </span>
+            <span className={`w-2 h-2 rounded-full ${hasSupaCreds ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+          </button>
+
           <Link
             to="/"
             target="_blank"
@@ -924,6 +1077,21 @@ export default function AdminDashboard() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleOpenDbModal}
+              className={`text-xs px-3 py-1.5 rounded-lg border flex items-center gap-1.5 transition-colors cursor-pointer ${
+                hasSupaCreds
+                  ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30 font-mono'
+                  : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border-amber-500/30 font-mono'
+              }`}
+              title="Cloud Database Settings (Supabase)"
+            >
+              <Database size={13} className={hasSupaCreds ? 'text-emerald-400' : 'text-amber-400'} />
+              <span className="hidden sm:inline">
+                {hasSupaCreds ? 'Cloud DB Active' : 'Cloud Sync'}
+              </span>
+            </button>
+
             <button
               onClick={handleCreateSingleCard}
               disabled={creatingSingleCard}
@@ -3950,6 +4118,174 @@ export default function AdminDashboard() {
                     </>
                   )}
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* ── MODAL: CLOUD DATABASE (SUPABASE) SETTINGS ── */}
+      {dbModalOpen && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-[#0e1017] border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl max-h-[90vh] overflow-y-auto text-xs">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-5">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                  <Database size={18} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">
+                    Cloud Database (Supabase)
+                  </h3>
+                  <p className="text-[11px] text-gray-400 font-mono mt-0.5">
+                    Real-Time Cross-Device Synchronization
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDbModalOpen(false)}
+                className="text-gray-400 hover:text-white p-1 rounded-lg text-xl"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Status Card */}
+            <div
+              className={`p-4 rounded-2xl border mb-5 space-y-2 ${
+                hasSupaCreds
+                  ? 'bg-emerald-500/10 border-emerald-500/30'
+                  : 'bg-amber-500/10 border-amber-500/30'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span
+                  className={`inline-flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] font-mono ${
+                    hasSupaCreds ? 'text-emerald-400' : 'text-amber-400'
+                  }`}
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      hasSupaCreds ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                    }`}
+                  />
+                  {hasSupaCreds ? 'Cloud Database Connected' : 'Local Storage Only (IndexedDB)'}
+                </span>
+
+                {hasSupaCreds && (
+                  <button
+                    type="button"
+                    onClick={handleDisconnectDb}
+                    className="text-[11px] text-rose-400 hover:text-rose-300 font-mono underline"
+                  >
+                    Disconnect
+                  </button>
+                )}
+              </div>
+
+              <p className="text-gray-300 text-[11px] leading-relaxed">
+                {hasSupaCreds
+                  ? 'Your NFC cards and Dynamic QR codes are synchronizing with Supabase PostgreSQL in real time. Changes made here apply instantly to all mobile devices and external scanners.'
+                  : 'Your cards and settings are currently stored securely in your browser (IndexedDB). To enable instant synchronization across phones, scanners, and external devices, connect your free Supabase project below.'}
+              </p>
+
+              {hasSupaCreds && (
+                <div className="pt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleManualSyncNow}
+                    disabled={dbSyncing}
+                    className="bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw size={12} className={dbSyncing ? 'animate-spin' : ''} />
+                    <span>{dbSyncing ? 'Syncing...' : 'Sync Local Cards to Cloud Now'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleTestAndSaveDb} className="space-y-4">
+              <div>
+                <label className="font-semibold text-gray-300 block mb-1">
+                  Supabase Project URL *
+                </label>
+                <input
+                  type="url"
+                  required
+                  value={dbUrl}
+                  onChange={(e) => setDbUrl(e.target.value)}
+                  placeholder="https://xyzcompany.supabase.co"
+                  className="w-full bg-[#161822] border border-white/10 rounded-xl px-3.5 py-2.5 text-white font-mono focus:border-emerald-400 outline-none text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-gray-300 block mb-1">
+                  Supabase Anon Public Key *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={dbKey}
+                  onChange={(e) => setDbKey(e.target.value)}
+                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  className="w-full bg-[#161822] border border-white/10 rounded-xl px-3.5 py-2.5 text-white font-mono focus:border-emerald-400 outline-none text-xs"
+                />
+              </div>
+
+              {/* Status Message */}
+              {dbStatusMsg && (
+                <div
+                  className={`p-3 rounded-xl border text-[11px] leading-relaxed flex items-center gap-2 ${
+                    dbStatusMsg.ok
+                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                      : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                  }`}
+                >
+                  {dbStatusMsg.ok ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                  <span>{dbStatusMsg.text}</span>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="pt-2 flex items-center justify-between border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={handleCopySqlSchema}
+                  className="text-gray-400 hover:text-white flex items-center gap-1.5 font-mono text-[11px] py-2 px-2.5 rounded-lg border border-white/10 hover:bg-white/5"
+                  title="Copy SQL Schema for Supabase SQL Editor"
+                >
+                  <Copy size={13} className={copiedSql ? 'text-emerald-400' : ''} />
+                  <span>{copiedSql ? 'Copied SQL!' : 'Copy SQL Schema'}</span>
+                </button>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDbModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-gray-400 hover:text-white"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={dbTesting}
+                    className="bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold px-5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-md"
+                  >
+                    {dbTesting ? (
+                      <>
+                        <RefreshCw size={13} className="animate-spin" />
+                        <span>Testing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check size={14} />
+                        <span>Test &amp; Connect</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
