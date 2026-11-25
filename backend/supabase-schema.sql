@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS business_pages (
   border_radius           TEXT        DEFAULT 'rounded-2xl',
   layout                  TEXT        DEFAULT 'centered',
   theme                   TEXT        DEFAULT 'light',
+  status                  TEXT        DEFAULT 'available',
+  card_number             TEXT        DEFAULT '',
   created_at              TIMESTAMPTZ DEFAULT NOW(),
   updated_at              TIMESTAMPTZ DEFAULT NOW()
 );

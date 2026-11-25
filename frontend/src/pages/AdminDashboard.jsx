@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   LogOut, Save, Plus, Trash2, Edit2, ChevronDown, Upload,
   Building2, Share2, Palette, LayoutDashboard, X, Check,
-  Smartphone, AlertCircle, Loader2, ExternalLink, RotateCcw, Database,
+  Smartphone, AlertCircle, Loader2, ExternalLink, RotateCcw, Database, QrCode,
 } from 'lucide-react'
 import {
   listPages, getPage, createPage, updatePage, deletePage,
@@ -15,6 +15,7 @@ import ColorPicker from '../components/ColorPicker.jsx'
 import MiniPreview from '../components/MiniPreview.jsx'
 import Toast from '../components/Toast.jsx'
 import LoadingSpinner from '../components/LoadingSpinner.jsx'
+import BulkCardsManager from '../components/BulkCardsManager.jsx'
 
 const DEFAULT_FORM = {
   business_name: '',
@@ -42,11 +43,12 @@ const DEFAULT_FORM = {
 }
 
 const TABS = [
-  { id: 'business', label: 'Business', icon: Building2 },
-  { id: 'social', label: 'Social', icon: Share2 },
-  { id: 'design', label: 'Design', icon: Palette },
+  { id: 'bulk-cards', label: 'Bulk QR Cards (50)', icon: QrCode },
+  { id: 'business', label: 'Business Profile', icon: Building2 },
+  { id: 'social', label: 'Social Links', icon: Share2 },
+  { id: 'design', label: 'Design & Style', icon: Palette },
   { id: 'database', label: 'Database', icon: Database },
-  { id: 'pages', label: 'Pages', icon: LayoutDashboard },
+  { id: 'pages', label: 'All Pages', icon: LayoutDashboard },
 ]
 
 const FONTS = ['Inter', 'Poppins', 'Roboto', 'Montserrat', 'Raleway']
@@ -85,7 +87,7 @@ export default function AdminDashboard() {
   const [pages, setPages] = useState([])
   const [selectedPageId, setSelectedPageId] = useState(null)
   const [formData, setFormData] = useState({ ...DEFAULT_FORM })
-  const [activeTab, setActiveTab] = useState('business')
+  const [activeTab, setActiveTab] = useState('bulk-cards')
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState({ visible: false, message: '', type: 'success' })
   const [logoFile, setLogoFile] = useState(null)
@@ -223,16 +225,25 @@ export default function AdminDashboard() {
     if (!selectedPageId) return
     setSaving(true)
     try {
+      // Auto-assign status if customer business name is provided
+      let status = formData.status || 'available'
+      if (formData.business_name && status === 'available') {
+        status = 'assigned'
+      }
+
       // Map frontend field names → DB column names
       const payload = {
         ...formData,
+        page_id: selectedPageId, // ensure permanent URL never changes!
+        status,
         google_review_text: formData.google_review_text || formData.google_review_btn_text,
         whatsapp_text: formData.whatsapp_text || formData.whatsapp_btn_text,
         instagram_text: formData.instagram_text || formData.instagram_btn_text,
         btn_style: formData.btn_style || formData.button_style,
       }
       await updatePage(selectedPageId, payload)
-      showToast('✓ Saved!', 'success')
+      await loadPages()
+      showToast('✓ Saved! Live page updated.', 'success')
     } catch {
       showToast('Save failed. Please try again.', 'error')
     } finally {
@@ -417,10 +428,57 @@ export default function AdminDashboard() {
 
                 {/* Tab content */}
                 <div className="p-5">
+                  {/* ========== BULK CARDS GENERATOR TAB ========== */}
+                  {activeTab === 'bulk-cards' && (
+                    <BulkCardsManager
+                      onEditCard={async (cardId) => {
+                        setSelectedPageId(cardId)
+                        await loadPageData(cardId)
+                        setActiveTab('business')
+                      }}
+                      onSelectForPreview={async (cardId) => {
+                        setSelectedPageId(cardId)
+                        await loadPageData(cardId)
+                      }}
+                    />
+                  )}
+
                   {/* ========== BUSINESS TAB ========== */}
                   {activeTab === 'business' && (
                     <div>
-                      <SectionLabel>Business Info</SectionLabel>
+                      {/* Permanent Bulk Card Banner */}
+                      {selectedPageId && /^\d{1,3}$/.test(selectedPageId) && (
+                        <div className="mb-5 p-3.5 rounded-2xl bg-indigo-50 border border-indigo-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                          <div className="flex items-center gap-2 text-indigo-900 font-semibold">
+                            <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-mono font-bold text-xs">
+                              {selectedPageId}
+                            </span>
+                            <span>
+                              Editing PVC Card #{selectedPageId} (URL: <strong className="font-mono">https://nfc-sage.vercel.app/p/{selectedPageId}</strong>)
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 bg-white px-2.5 py-1 rounded-full border border-indigo-200 self-start sm:self-auto">
+                            Permanent URL & QR Locked
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between mb-2">
+                        <SectionLabel>Business Info</SectionLabel>
+                        {/* Status selector */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-gray-500">Card Status:</span>
+                          <select
+                            value={formData.status || 'available'}
+                            onChange={(e) => handleFieldChange('status', e.target.value)}
+                            className="text-xs font-bold px-2 py-1 rounded-lg border border-gray-200 bg-white cursor-pointer outline-none"
+                          >
+                            <option value="available">🟢 Available</option>
+                            <option value="assigned">🟡 Assigned</option>
+                            <option value="active">🔵 Active</option>
+                          </select>
+                        </div>
+                      </div>
 
                       <FieldGroup label="Business Name">
                         <input
@@ -873,8 +931,8 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Save & Reset buttons — not shown on pages or database tab */}
-              {activeTab !== 'pages' && activeTab !== 'database' && selectedPageId && (
+              {/* Save & Reset buttons — not shown on bulk-cards, pages or database tab */}
+              {activeTab !== 'pages' && activeTab !== 'database' && activeTab !== 'bulk-cards' && selectedPageId && (
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
@@ -906,42 +964,44 @@ export default function AdminDashboard() {
               )}
             </div>
 
-            {/* RIGHT PANEL — Live Preview */}
-            <div className="lg:w-80 xl:w-96 flex-shrink-0">
-              <div className="sticky top-24">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 text-center">
-                  Live Preview
-                </p>
+            {/* RIGHT PANEL — Live Preview (hidden on bulk-cards to allow full width) */}
+            {activeTab !== 'bulk-cards' && (
+              <div className="lg:w-80 xl:w-96 flex-shrink-0">
+                <div className="sticky top-24">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 text-center">
+                    Live Preview
+                  </p>
 
-                {/* Phone mockup */}
-                <div className="mx-auto" style={{ width: 280 }}>
-                  <div
-                    className="relative bg-gray-900 rounded-[2.5rem] shadow-2xl overflow-hidden"
-                    style={{ padding: '10px', paddingTop: '28px', paddingBottom: '28px' }}
-                  >
-                    {/* Notch */}
-                    <div className="absolute top-2 left-1/2 -translate-x-1/2 w-20 h-5 bg-gray-900 rounded-b-2xl z-10 flex items-center justify-center">
-                      <div className="w-2 h-2 bg-gray-700 rounded-full" />
-                    </div>
-
-                    {/* Screen */}
+                  {/* Phone mockup */}
+                  <div className="mx-auto" style={{ width: 280 }}>
                     <div
-                      className="relative bg-white rounded-[2rem] overflow-hidden"
-                      style={{ height: 520 }}
+                      className="relative bg-gray-900 rounded-[2.5rem] shadow-2xl overflow-hidden"
+                      style={{ padding: '10px', paddingTop: '28px', paddingBottom: '28px' }}
                     >
-                      <MiniPreview formData={formData} />
+                      {/* Notch */}
+                      <div className="absolute top-2 left-1/2 -translate-x-1/2 w-20 h-5 bg-gray-900 rounded-b-2xl z-10 flex items-center justify-center">
+                        <div className="w-2 h-2 bg-gray-700 rounded-full" />
+                      </div>
+
+                      {/* Screen */}
+                      <div
+                        className="relative bg-white rounded-[2rem] overflow-hidden"
+                        style={{ height: 520 }}
+                      >
+                        <MiniPreview formData={formData} />
+                      </div>
+
+                      {/* Home indicator */}
+                      <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 w-20 h-1 bg-gray-600 rounded-full" />
                     </div>
-
-                    {/* Home indicator */}
-                    <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 w-20 h-1 bg-gray-600 rounded-full" />
                   </div>
-                </div>
 
-                <p className="text-center text-xs text-gray-400 mt-3">
-                  Updates as you type ✦
-                </p>
+                  <p className="text-center text-xs text-gray-400 mt-3">
+                    Updates as you type ✦
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </main>

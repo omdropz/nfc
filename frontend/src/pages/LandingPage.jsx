@@ -240,6 +240,133 @@ export default function LandingPage({ defaultPageId = 'omdropz' }) {
   const whatsappEnabled = settings.whatsapp_enabled !== false
   const instagramEnabled = settings.instagram_enabled !== false
 
+  // Detect unassigned / available PVC card state (Requirement 7)
+  const isAvailableCard =
+    settings.status === 'available' ||
+    (!settings.business_name && pageId !== 'omdropz' && pageId !== 'demo')
+
+  if (isAvailableCard) {
+    return (
+      <div
+        className="min-h-screen min-h-[100dvh] w-full flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden select-none bg-[#050507] touch-manipulation"
+        style={{ fontFamily: font }}
+      >
+        {/* Ambient Glows */}
+        <div className="fixed top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[620px] h-[620px] rounded-full blur-[160px] pointer-events-none bg-gradient-to-tr from-[#a3e635]/25 via-[#84cc16]/15 to-white/10 animate-pulse-aura" />
+        <div className="fixed -bottom-28 -right-28 w-[450px] h-[450px] rounded-full blur-[150px] opacity-15 pointer-events-none bg-[#a3e635]" />
+
+        {/* Floating Card */}
+        <div
+          ref={cardRef}
+          onMouseMove={handleMouseMove}
+          onTouchStart={handleTouchMove}
+          onTouchMove={handleTouchMove}
+          className="relative w-full max-w-[390px] mx-auto rounded-[2.5rem] p-7 sm:p-9 transition-all duration-500 shadow-[0_35px_100px_-15px_rgba(0,0,0,0.95)] animate-card-enter overflow-hidden group text-center"
+          style={{
+            background: 'linear-gradient(180deg, rgba(16, 17, 23, 0.95) 0%, rgba(8, 9, 12, 0.98) 100%)',
+            backdropFilter: 'blur(35px)',
+            WebkitBackdropFilter: 'blur(35px)',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+            boxShadow: '0 30px 90px -15px rgba(0, 0, 0, 0.95), 0 0 45px -10px rgba(163, 230, 53, 0.2)',
+          }}
+        >
+          {/* Top Bevel */}
+          <div className="absolute top-0 inset-x-8 h-[2px] bg-gradient-to-r from-transparent via-[#a3e635] via-white to-transparent" />
+
+          {/* Top Badge Row */}
+          <div className="flex items-center justify-between mb-4 relative z-20">
+            <span className="px-3 py-1 rounded-full bg-[#a3e635]/10 border border-[#a3e635]/35 text-[10px] font-bold text-[#bef264] uppercase tracking-wider flex items-center gap-1.5 shadow-[0_0_15px_rgba(163,230,53,0.15)]">
+              <span className="w-2 h-2 rounded-full bg-[#a3e635] animate-ping inline-block" />
+              Card Available
+            </span>
+            <span className="font-mono text-xs font-bold text-white/70 bg-white/5 px-2.5 py-1 rounded-lg border border-white/10">
+              #{pageId}
+            </span>
+          </div>
+
+          {/* Radar Wireless NFC Pulse Icon */}
+          <div className="relative w-28 h-28 mx-auto my-5 flex items-center justify-center z-20">
+            <div
+              className="absolute -inset-[3px] rounded-full animate-spin-slow opacity-90 blur-[1px]"
+              style={{
+                background: 'conic-gradient(from 0deg, #bef264, #a3e635, #ffffff, transparent, #a3e635, #bef264)',
+              }}
+            />
+            <div className="relative w-24 h-24 rounded-full bg-[#050507] flex flex-col items-center justify-center border border-white/10 shadow-[0_15px_40px_rgba(0,0,0,0.95)]">
+              <Wifi size={38} className="text-[#a3e635] rotate-90 animate-pulse" />
+            </div>
+          </div>
+
+          {/* Card Title & Intro */}
+          <h1 className="text-2xl font-black tracking-tight text-white mt-2 leading-snug z-20 relative">
+            <span className="bg-gradient-to-r from-white via-white to-[#bef264] bg-clip-text text-transparent">
+              PVC NFC Card #{pageId}
+            </span>
+          </h1>
+
+          <p className="text-xs text-emerald-100/75 mt-2 leading-relaxed font-light max-w-[300px] mx-auto z-20 relative">
+            This permanent dynamic card is active and awaiting customer assignment.
+          </p>
+
+          {/* Specifications Box */}
+          <div className="mt-6 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] text-left text-xs space-y-2 z-20 relative">
+            <div className="flex justify-between items-center text-white/60">
+              <span className="text-[11px]">Hardware Chip:</span>
+              <span className="font-mono font-bold text-[#bef264] text-[11px]">NTAG213 (144B)</span>
+            </div>
+            <div className="flex justify-between items-center text-white/60">
+              <span className="text-[11px]">Permanent URL:</span>
+              <span className="font-mono text-[10px] text-white/90 truncate max-w-[160px]">
+                /p/{pageId}
+              </span>
+            </div>
+            <div className="flex justify-between items-center text-white/60">
+              <span className="text-[11px]">Card State:</span>
+              <span className="text-emerald-400 font-bold uppercase text-[10px] tracking-wider flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                Ready to Program
+              </span>
+            </div>
+          </div>
+
+          {/* Assign / Claim Button */}
+          <button
+            onClick={() => navigate('/admin/login')}
+            className="mt-6 w-full py-3.5 px-4 rounded-2xl bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold text-sm shadow-[0_10px_30px_rgba(163,230,53,0.3)] transition-all flex items-center justify-center gap-2 active:scale-95 z-20 relative cursor-pointer"
+          >
+            <Zap size={16} />
+            <span>Assign / Activate Profile</span>
+          </button>
+
+          {/* Footer brand with 3-tap detection */}
+          <div className="mt-8 pt-4 text-center border-t border-white/[0.08] relative z-20">
+            <p className="text-[10px] tracking-[0.25em] uppercase font-medium text-white/50">
+              Powered by{' '}
+              <span
+                className="font-black cursor-pointer transition-colors hover:text-white inline-block px-1 py-0.5 text-[#a3e635] shadow-[0_0_10px_rgba(163,230,53,0.3)]"
+                onClick={handleFooterBrandTap}
+                onTouchEnd={(e) => {
+                  e.preventDefault()
+                  handleFooterBrandTap()
+                }}
+              >
+                {settings.footer_brand && settings.footer_brand !== 'NEXUS NFC' ? settings.footer_brand : 'OMDROPZ'}
+              </span>
+            </p>
+
+            {tapCount > 0 && (
+              <div className="flex items-center justify-center gap-1.5 mt-2">
+                <span className={`w-1.5 h-1.5 rounded-full transition-all ${tapCount >= 1 ? 'bg-[#a3e635] scale-125' : 'bg-white/20'}`} />
+                <span className={`w-1.5 h-1.5 rounded-full transition-all ${tapCount >= 2 ? 'bg-[#a3e635] scale-125' : 'bg-white/20'}`} />
+                <span className={`w-1.5 h-1.5 rounded-full transition-all ${tapCount >= 3 ? 'bg-[#a3e635] scale-125' : 'bg-white/20'}`} />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       className="min-h-screen min-h-[100dvh] w-full flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden select-none bg-[#050507] touch-manipulation"

@@ -141,7 +141,44 @@ export const getPage = async (pageId) => {
     return { success: true, page: idbPage }
   }
 
-  // 4. Fallback to LocalStorage
+  // 4. Auto-provision bulk card records (001 to 050) in Available state
+  if (/^\d{1,3}$/.test(target)) {
+    const cardId = target.padStart(3, '0')
+    const availableCard = {
+      id: `card-${cardId}`,
+      page_id: cardId,
+      card_number: cardId,
+      status: 'available',
+      is_bulk: true,
+      business_name: '',
+      welcome_message: '',
+      footer_brand: 'OMDROPZ',
+      google_review_enabled: true,
+      google_review_url: '',
+      google_review_text: 'Google Review',
+      whatsapp_enabled: true,
+      whatsapp_number: '',
+      whatsapp_message: 'Hello! I found your NFC card.',
+      whatsapp_text: 'Chat on WhatsApp',
+      instagram_enabled: true,
+      instagram_url: '',
+      instagram_text: 'Follow on Instagram',
+      bg_color: '#050507',
+      btn_color: '#a3e635',
+      btn_style: 'solid',
+      text_color: '#ffffff',
+      font: 'Poppins',
+      border_radius: 'rounded-2xl',
+      layout: 'centered',
+      theme: 'dark',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+    await idbSavePage(availableCard)
+    return { success: true, page: availableCard }
+  }
+
+  // 5. Fallback to LocalStorage
   const pages = getStoragePages()
   const found =
     pages.find((p) => p.page_id.toLowerCase() === target) ||
