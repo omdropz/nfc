@@ -1544,6 +1544,15 @@ CREATE POLICY "Public write businesses" ON businesses FOR ALL USING (true);`
                               {/* Actions */}
                               <td className="py-3.5 px-4 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
+                                  {/* QR Code Preview Modal */}
+                                  <button
+                                    onClick={() => handleShowQrModal(c)}
+                                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[#a3e635] transition-colors cursor-pointer"
+                                    title="View & Zoom QR Code"
+                                  >
+                                    <QrCode size={14} />
+                                  </button>
+
                                   {/* Download PNG */}
                                   <button
                                     onClick={() => downloadSingleQRPNG(c.permanent_url, c.card_id)}
@@ -1896,7 +1905,7 @@ CREATE POLICY "Public write businesses" ON businesses FOR ALL USING (true);`
                         <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[11px] flex items-center gap-2">
                           <CheckCircle2 size={14} className="shrink-0" />
                           <span>
-                            QR Code and NFC Tag use the identical URL: <strong className="font-mono text-white">/c/{currentNfcCard.card_id}</strong>
+                            QR Code and NFC Tag use the identical URL: <strong className="font-mono text-white">/p/{currentNfcCard.card_id}</strong>
                           </span>
                         </div>
                       </div>
@@ -1954,12 +1963,12 @@ CREATE POLICY "Public write businesses" ON businesses FOR ALL USING (true);`
                       {/* Direct Test Link */}
                       <div className="flex items-center justify-between px-1 text-xs">
                         <Link
-                          to={`/c/${currentNfcCard.card_id}`}
+                          to={`/p/${currentNfcCard.card_id}`}
                           target="_blank"
                           className="text-gray-400 hover:text-white flex items-center gap-1.5 transition-colors"
                         >
                           <ExternalLink size={13} />
-                          <span>Simulate Public NFC Tap (/c/{currentNfcCard.card_id})</span>
+                          <span>Simulate Public NFC Tap (/p/{currentNfcCard.card_id})</span>
                         </Link>
                       </div>
                     </div>
@@ -1998,7 +2007,7 @@ CREATE POLICY "Public write businesses" ON businesses FOR ALL USING (true);`
                             3
                           </span>
                           <p className="text-gray-300">
-                            Paste the permanent URL: <code className="text-[#a3e635] font-mono bg-black/40 px-1 py-0.5 rounded">/c/{currentNfcCard.card_id}</code> and tap <strong>OK</strong>.
+                            Paste the permanent URL: <code className="text-[#a3e635] font-mono bg-black/40 px-1 py-0.5 rounded">/p/{currentNfcCard.card_id}</code> and tap <strong>OK</strong>.
                           </p>
                         </div>
 
@@ -2206,7 +2215,7 @@ CREATE POLICY "Public write businesses" ON businesses FOR ALL USING (true);`
                                     </button>
 
                                     <Link
-                                      to={`/c/${c.card_id}`}
+                                      to={`/p/${c.card_id}`}
                                       target="_blank"
                                       className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors"
                                       title="Test Live URL"
@@ -2381,7 +2390,7 @@ CREATE POLICY "Public write businesses" ON businesses FOR ALL USING (true);`
                                 b.linkedCards.map((cid) => (
                                   <Link
                                     key={cid}
-                                    to={`/c/${cid}`}
+                                    to={`/p/${cid}`}
                                     target="_blank"
                                     className="font-mono text-[10px] font-bold bg-[#a3e635]/10 border border-[#a3e635]/30 text-[#bef264] px-2 py-0.5 rounded-lg hover:bg-[#a3e635] hover:text-black transition-colors"
                                   >
@@ -2738,7 +2747,7 @@ CREATE POLICY "Public write businesses" ON businesses FOR ALL USING (true);`
                       <option value="">-- Choose unassigned card --</option>
                       {availableCards.map((c) => (
                         <option key={c.card_id} value={c.card_id}>
-                          {c.card_id} (URL: /c/{c.card_id})
+                          {c.card_id} (URL: /p/{c.card_id})
                         </option>
                       ))}
                     </select>
@@ -3096,7 +3105,7 @@ CREATE POLICY "Public write businesses" ON businesses FOR ALL USING (true);`
                       QR Hub API Integration &amp; Dynamic QR Sync
                     </h3>
                     <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                      QR Hub allows remote redirection syncing for physical dynamic QR codes. If you have an active QR Hub plan and API key, enter your credentials below. The platform maintains permanent URLs (<span className="font-mono text-[#a3e635]">/c/:cardId</span>) so that physical cards remain 100% functional even if external API connectivity changes.
+                      QR Hub allows remote redirection syncing for physical dynamic QR codes. If you have an active QR Hub plan and API key, enter your credentials below. The platform maintains permanent URLs (<span className="font-mono text-[#a3e635]">/p/:cardId</span>) so that physical cards remain 100% functional even if external API connectivity changes.
                     </p>
                   </div>
                 </div>
@@ -3107,7 +3116,7 @@ CREATE POLICY "Public write businesses" ON businesses FOR ALL USING (true);`
                     <span>Current Architecture Status</span>
                   </h4>
                   <ul className="space-y-1.5 text-gray-400 list-disc list-inside">
-                    <li>All cards are mapped to permanent URLs: <code className="text-white">https://nfc-sage.vercel.app/c/:cardId</code></li>
+                    <li>All cards are mapped to permanent URLs: <code className="text-white">https://nfc-sage.vercel.app/p/:cardId</code></li>
                     <li>NFC chips and QR codes use the exact same permanent URL structure.</li>
                     <li>Card assignments change dynamically in your database without altering physical QR codes or chips.</li>
                   </ul>

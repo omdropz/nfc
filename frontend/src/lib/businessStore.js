@@ -668,17 +668,25 @@ export async function getAllCards(baseUrl = DEFAULT_BASE_URL) {
 
   return cards.map((c) => {
     const biz = c.business_id ? bizMap.get(String(c.business_id).toLowerCase()) : null
-    const cardType = c.card_type || '3in1'
+    const cardId = formatCardId(c.card_id)
+    const isTestCard = cardId === '001'
+    const cardType = c.card_type || (isTestCard ? 'instagram' : '3in1')
+    const permanentUrl = generateCardUrl(cardId, baseUrl, 'p')
+
     return {
       ...c,
+      card_id: cardId,
+      card_number: cardId,
       card_type: cardType,
       nfc_status: c.nfc_status || 'not_programmed',
       business: biz || null,
-      business_name: c.business_name || (biz ? biz.name : ''),
+      business_name: c.business_name || (isTestCard ? 'Test Business' : (biz ? biz.name : '')),
       destination_url: c.destination_url || (biz ? biz.google_review_url : '') || '',
       whatsapp_number: c.whatsapp_number || (biz ? biz.whatsapp_number : '') || '',
       scan_count: c.scan_count || 0,
       last_scanned_at: c.last_scanned_at || null,
+      permanent_url: permanentUrl,
+      nfc_url: permanentUrl,
     }
   })
 }
