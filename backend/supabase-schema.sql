@@ -44,16 +44,20 @@ CREATE TABLE IF NOT EXISTS nfc_cards (
   card_id                 TEXT PRIMARY KEY, -- '001', '002', '003'...
   card_number             TEXT NOT NULL,    -- 3-digit numeric string
   status                  TEXT NOT NULL DEFAULT 'available', -- 'available' | 'assigned' | 'linked' | 'active'
+  nfc_status              TEXT NOT NULL DEFAULT 'not_programmed', -- 'not_programmed' | 'programmed' | 'tested'
   business_id             TEXT REFERENCES businesses(id) ON DELETE SET NULL,
   permanent_url           TEXT NOT NULL,    -- https://nfc-sage.vercel.app/c/001
   nfc_url                 TEXT NOT NULL,    -- URL written to physical NTAG213 tag
   qrhub_qr_id             TEXT,             -- Optional dynamic QR Hub ID
+  nfc_programmed_at       TIMESTAMPTZ,
+  nfc_tested_at           TIMESTAMPTZ,
   created_at              TIMESTAMPTZ DEFAULT NOW(),
   updated_at              TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_nfc_cards_business_id ON nfc_cards(business_id);
 CREATE INDEX IF NOT EXISTS idx_nfc_cards_status ON nfc_cards(status);
+CREATE INDEX IF NOT EXISTS idx_nfc_cards_nfc_status ON nfc_cards(nfc_status);
 
 -- ────────────────────────────────────────────────────────────────────
 -- 3. OWNER_ACCOUNTS TABLE

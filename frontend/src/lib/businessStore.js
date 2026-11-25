@@ -94,6 +94,7 @@ export async function initBusinessStore(baseUrl = DEFAULT_BASE_URL) {
       card_id: cardId,
       card_number: cardId,
       status: 'available', // 'available' | 'assigned' | 'linked' | 'active'
+      nfc_status: 'not_programmed', // 'not_programmed' | 'programmed' | 'tested'
       business_id: null,
       permanent_url: permanentUrl,
       nfc_url: permanentUrl,
@@ -127,6 +128,7 @@ export async function createCard(customCardId = null, baseUrl = DEFAULT_BASE_URL
     card_id: cardId,
     card_number: cardId,
     status: 'available',
+    nfc_status: 'not_programmed',
     business_id: null,
     permanent_url: permanentUrl,
     nfc_url: permanentUrl,
@@ -188,6 +190,7 @@ export async function bulkCreateCards(quantity, baseUrl = DEFAULT_BASE_URL, onPr
       card_id: cardId,
       card_number: cardId,
       status: 'available',
+      nfc_status: 'not_programmed',
       business_id: null,
       permanent_url: permanentUrl,
       nfc_url: permanentUrl,
@@ -241,6 +244,54 @@ export async function deleteCardRecord(cardId) {
 }
 
 /**
+ * Update NFC Hardware Programming Status:
+ * - 'not_programmed'
+ * - 'programmed'
+ * - 'tested'
+ * Requirement 10: Admin must explicitly confirm after physically writing and testing.
+ */
+export async function updateCardNfcStatus(cardId, nfcStatus) {
+  const formattedId = formatCardId(cardId)
+  const card = await idbGetCard(formattedId)
+  if (!card) throw new Error(`Card ${cardId} not found`)
+
+  const valid = ['not_programmed', 'programmed', 'tested']
+  if (!valid.includes(nfcStatus)) {
+    throw new Error(`Invalid NFC status: ${nfcStatus}`)
+  }
+
+  const now = new Date().toISOString()
+  const updated = {
+    ...card,
+    nfc_status: nfcStatus,
+    nfc_programmed_at: nfcStatus !== 'not_programmed' ? (card.nfc_programmed_at || now) : null,
+    nfc_tested_at: nfcStatus === 'tested' ? now : (nfcStatus === 'not_programmed' ? null : card.nfc_tested_at),
+    updated_at: now,
+  }
+
+  await idbSaveCard(updated)
+
+  const supabase = getSupabaseClient()
+  if (supabase) {
+    try {
+      await supabase.from('nfc_cards').upsert(updated, { onConflict: 'card_id' })
+    } catch (err) {
+      console.warn('Supabase updateCardNfcStatus warning:', err)
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('nfc_card_status_updated', {
+        detail: { cardId: formattedId, nfc_status: nfcStatus, card: updated },
+      })
+    )
+  }
+
+  return updated
+}
+
+/**
  * Get all cards (with populated business data)
  */
 export async function getAllCards(baseUrl = DEFAULT_BASE_URL) {
@@ -267,6 +318,7 @@ export async function getAllCards(baseUrl = DEFAULT_BASE_URL) {
     const biz = c.business_id ? bizMap.get(String(c.business_id).toLowerCase()) : null
     return {
       ...c,
+      nfc_status: c.nfc_status || 'not_programmed',
       business: biz || null,
       business_name: biz ? biz.name : '',
     }

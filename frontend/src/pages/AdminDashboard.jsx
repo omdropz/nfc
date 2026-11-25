@@ -31,6 +31,13 @@ import {
   Info,
   Layers,
   Sparkles,
+  Radio,
+  Check,
+  AlertCircle,
+  RotateCcw,
+  ShieldCheck,
+  ArrowRight,
+  Wifi,
 } from 'lucide-react'
 import {
   getAllCards,
@@ -39,6 +46,7 @@ import {
   bulkCreateCards,
   deleteCardRecord,
   getNextCardId,
+  updateCardNfcStatus,
   createBusiness,
   updateBusiness,
   linkCardToBusiness,
@@ -59,8 +67,8 @@ import {
 export default function AdminDashboard() {
   const navigate = useNavigate()
 
-  // Navigation tab
-  const [activeTab, setActiveTab] = useState('overview') // 'overview' | 'cards' | 'businesses' | 'create-biz' | 'link-biz' | 'qr-hub'
+  // Navigation tab: 'overview' | 'cards' | 'nfc-programming' | 'businesses' | 'create-biz' | 'link-biz' | 'qr-hub'
+  const [activeTab, setActiveTab] = useState('overview')
 
   // Data
   const [cards, setCards] = useState([])
@@ -69,11 +77,18 @@ export default function AdminDashboard() {
   const [copiedUrl, setCopiedUrl] = useState('')
   const [toastMsg, setToastMsg] = useState('')
 
-  // Card Pagination & Filter
+  // Card Pagination & Filter (All NFC Cards tab)
   const [cardSearch, setCardSearch] = useState('')
   const [cardFilter, setCardFilter] = useState('all') // 'all' | 'available' | 'assigned' | 'linked'
   const [cardPage, setCardPage] = useState(1)
   const [cardPageSize, setCardPageSize] = useState(25)
+
+  // NFC Programming State
+  const [selectedNfcCardId, setSelectedNfcCardId] = useState('')
+  const [nfcProgSearch, setNfcProgSearch] = useState('')
+  const [nfcProgFilter, setNfcProgFilter] = useState('all') // 'all' | 'not_programmed' | 'programmed' | 'tested'
+  const [nfcProgPage, setNfcProgPage] = useState(1)
+  const nfcProgPageSize = 25
 
   // Business Pagination & Filter
   const [bizSearch, setBizSearch] = useState('')
@@ -171,7 +186,34 @@ export default function AdminDashboard() {
     } catch {}
   }
 
-  // Filtered Cards
+  // Overview Metrics (Never hardcoded!)
+  const metrics = useMemo(() => {
+    const totalCards = cards.length
+    const availableCards = cards.filter((c) => c.status === 'available' || !c.business_id).length
+    const assignedCards = cards.filter((c) => c.status === 'assigned' || c.status === 'linked' || c.status === 'active').length
+    const totalBusinesses = businesses.length
+    const linkedCards = cards.filter((c) => c.status === 'linked').length
+
+    // NFC Programming Metrics
+    const notProgrammed = cards.filter((c) => !c.nfc_status || c.nfc_status === 'not_programmed').length
+    const programmed = cards.filter((c) => c.nfc_status === 'programmed').length
+    const tested = cards.filter((c) => c.nfc_status === 'tested').length
+    const completionPercent = totalCards > 0 ? Math.round(((programmed + tested) / totalCards) * 100) : 0
+
+    return {
+      totalCards,
+      availableCards,
+      assignedCards,
+      totalBusinesses,
+      linkedCards,
+      notProgrammed,
+      programmed,
+      tested,
+      completionPercent,
+    }
+  }, [cards, businesses])
+
+  // Filtered Cards for "All NFC Cards" tab
   const filteredCards = useMemo(() => {
     return cards.filter((c) => {
       const q = cardSearch.toLowerCase().trim()
@@ -191,7 +233,7 @@ export default function AdminDashboard() {
     })
   }, [cards, cardSearch, cardFilter])
 
-  // Paginated Cards for smooth 60fps rendering with unlimited cards
+  // Paginated Cards for "All NFC Cards" tab
   const totalFilteredCards = filteredCards.length
   const totalCardPages = Math.max(1, Math.ceil(totalFilteredCards / cardPageSize))
   const paginatedCards = useMemo(() => {
@@ -200,21 +242,46 @@ export default function AdminDashboard() {
     return filteredCards.slice(start, start + cardPageSize)
   }, [filteredCards, cardPage, totalCardPages, cardPageSize])
 
-  // Overview Metrics (Never hardcoded!)
-  const metrics = useMemo(() => {
-    const totalCards = cards.length
-    const availableCards = cards.filter((c) => c.status === 'available' || !c.business_id).length
-    const assignedCards = cards.filter((c) => c.status === 'assigned' || c.status === 'linked' || c.status === 'active').length
-    const totalBusinesses = businesses.length
-    const linkedCards = cards.filter((c) => c.status === 'linked').length
-    return {
-      totalCards,
-      availableCards,
-      assignedCards,
-      totalBusinesses,
-      linkedCards,
+  // Currently selected Card in NFC Programming Workbench
+  const currentNfcCard = useMemo(() => {
+    if (selectedNfcCardId) {
+      const found = cards.find((c) => c.card_id === selectedNfcCardId)
+      if (found) return found
     }
-  }, [cards, businesses])
+    const firstUnprog = cards.find((c) => !c.nfc_status || c.nfc_status === 'not_programmed')
+    return firstUnprog || cards[0] || null
+  }, [cards, selectedNfcCardId])
+
+  // Filtered Cards for NFC Programming Queue
+  const filteredNfcCards = useMemo(() => {
+    return cards.filter((c) => {
+      const q = nfcProgSearch.toLowerCase().trim()
+      const matchesSearch =
+        !q ||
+        String(c.card_id).toLowerCase().includes(q) ||
+        (c.business_name && c.business_name.toLowerCase().includes(q))
+
+      if (!matchesSearch) return false
+
+      if (nfcProgFilter === 'not_programmed') {
+        return !c.nfc_status || c.nfc_status === 'not_programmed'
+      }
+      if (nfcProgFilter === 'programmed') {
+        return c.nfc_status === 'programmed'
+      }
+      if (nfcProgFilter === 'tested') {
+        return c.nfc_status === 'tested'
+      }
+      return true
+    })
+  }, [cards, nfcProgSearch, nfcProgFilter])
+
+  const totalNfcProgPages = Math.max(1, Math.ceil(filteredNfcCards.length / nfcProgPageSize))
+  const paginatedNfcCards = useMemo(() => {
+    const safePage = Math.min(nfcProgPage, totalNfcProgPages)
+    const start = (safePage - 1) * nfcProgPageSize
+    return filteredNfcCards.slice(start, start + nfcProgPageSize)
+  }, [filteredNfcCards, nfcProgPage, totalNfcProgPages, nfcProgPageSize])
 
   // Filtered & Paginated Businesses
   const filteredBusinesses = useMemo(() => {
@@ -273,6 +340,35 @@ export default function AdminDashboard() {
     } finally {
       setBulkCreating(false)
       setBulkProgress(0)
+    }
+  }
+
+  // ── ACTION: Update NFC Programming Status ──
+  // Requirement 10: Admin must confirm after physically writing and testing.
+  const handleSetNfcStatus = async (cardId, status) => {
+    try {
+      await updateCardNfcStatus(cardId, status)
+      await reloadData()
+      const label =
+        status === 'tested'
+          ? 'Tested & Verified'
+          : status === 'programmed'
+          ? 'Programmed'
+          : 'Not Programmed'
+      showToast(`${cardId} marked as ${label}`)
+    } catch {
+      alert('Error updating NFC programming status.')
+    }
+  }
+
+  // ── Jump to Next Unprogrammed Card ──
+  const handleNextUnprogrammed = () => {
+    const unprogCards = cards.filter((c) => !c.nfc_status || c.nfc_status === 'not_programmed')
+    const currentIndex = unprogCards.findIndex((c) => c.card_id === currentNfcCard?.card_id)
+    if (currentIndex >= 0 && currentIndex < unprogCards.length - 1) {
+      setSelectedNfcCardId(unprogCards[currentIndex + 1].card_id)
+    } else if (unprogCards.length > 0) {
+      setSelectedNfcCardId(unprogCards[0].card_id)
     }
   }
 
@@ -450,7 +546,7 @@ export default function AdminDashboard() {
                 <h1 className="text-sm font-black tracking-tight text-white">
                   OMDROPZ <span className="text-[#a3e635]">ADMIN</span>
                 </h1>
-                <p className="text-[10px] font-mono text-gray-400">Unlimited Card Manager</p>
+                <p className="text-[10px] font-mono text-gray-400">NFC &amp; QR Control Center</p>
               </div>
             </div>
           </div>
@@ -490,6 +586,35 @@ export default function AdminDashboard() {
                 }`}
               >
                 {metrics.totalCards}
+              </span>
+            </button>
+
+            {/* ── NEW: DEDICATED NFC PROGRAMMING SECTION ── */}
+            <button
+              onClick={() => {
+                setActiveTab('nfc-programming')
+                setNfcProgPage(1)
+              }}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
+                activeTab === 'nfc-programming'
+                  ? 'bg-[#a3e635] text-black font-extrabold shadow-md'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Radio size={17} />
+                <span>NFC Programming</span>
+              </div>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                  activeTab === 'nfc-programming'
+                    ? 'bg-black text-[#a3e635]'
+                    : metrics.notProgrammed > 0
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    : 'bg-emerald-500/20 text-emerald-300'
+                }`}
+              >
+                {metrics.notProgrammed > 0 ? `${metrics.notProgrammed} left` : 'All Done'}
               </span>
             </button>
 
@@ -581,7 +706,7 @@ export default function AdminDashboard() {
         <header className="px-6 py-4 border-b border-white/10 bg-[#08090e]/70 backdrop-blur-md flex items-center justify-between sticky top-0 z-20">
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono uppercase tracking-widest text-[#a3e635] bg-[#a3e635]/10 px-2.5 py-1 rounded-md border border-[#a3e635]/20 font-bold">
-              SCALABLE SYSTEM
+              CONTROL PANEL
             </span>
             <h2 className="text-sm font-bold capitalize text-white">
               {activeTab.replace('-', ' ')}
@@ -589,7 +714,6 @@ export default function AdminDashboard() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Quick Create Card Button in Header */}
             <button
               onClick={handleCreateSingleCard}
               disabled={creatingSingleCard}
@@ -597,7 +721,7 @@ export default function AdminDashboard() {
               title="Instantly generate next sequential card ID"
             >
               <PlusCircle size={14} />
-              <span>{creatingSingleCard ? 'Creating...' : '+ Create Card'}</span>
+              <span>{creatingSingleCard ? 'Creating...' : `+ Create ${nextId}`}</span>
             </button>
 
             <button
@@ -632,7 +756,7 @@ export default function AdminDashboard() {
         {/* Dynamic Content */}
         <div className="p-6 sm:p-8 space-y-8 flex-1">
           {/* ════════════════════════════════════════════════════════════
-              TAB 1: OVERVIEW (UNLIMITED SYSTEM)
+              TAB 1: OVERVIEW
               ════════════════════════════════════════════════════════════ */}
           {activeTab === 'overview' && (
             <div className="space-y-8">
@@ -640,7 +764,7 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                 <div className="p-5 rounded-2xl bg-[#0e1017] border border-white/10 shadow-lg">
                   <div className="flex items-center justify-between text-gray-400 text-xs mb-2">
-                    <span>Total NFC Cards</span>
+                    <span>Total Cards</span>
                     <CreditCard size={16} className="text-[#a3e635]" />
                   </div>
                   <div className="text-3xl font-black text-white font-mono">{metrics.totalCards}</div>
@@ -676,11 +800,15 @@ export default function AdminDashboard() {
 
                 <div className="p-5 rounded-2xl bg-[#0e1017] border border-white/10 shadow-lg">
                   <div className="flex items-center justify-between text-gray-400 text-xs mb-2">
-                    <span>Linked Cards</span>
-                    <Link2 size={16} className="text-blue-400" />
+                    <span>NFC Tags Programmed</span>
+                    <Radio size={16} className="text-blue-400" />
                   </div>
-                  <div className="text-3xl font-black text-blue-400 font-mono">{metrics.linkedCards}</div>
-                  <p className="text-[10px] text-gray-500 mt-1">Multi-card clients</p>
+                  <div className="text-3xl font-black text-blue-400 font-mono">
+                    {metrics.programmed + metrics.tested}
+                  </div>
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    {metrics.tested} tested &bull; {metrics.notProgrammed} pending
+                  </p>
                 </div>
               </div>
 
@@ -695,13 +823,17 @@ export default function AdminDashboard() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
                   <button
-                    onClick={handleCreateSingleCard}
-                    disabled={creatingSingleCard}
-                    className="p-4 rounded-2xl bg-gradient-to-tr from-[#a3e635]/20 to-[#bef264]/10 border border-[#a3e635]/40 hover:border-[#a3e635] text-left transition-all cursor-pointer group disabled:opacity-50"
+                    onClick={() => {
+                      setActiveTab('nfc-programming')
+                      setNfcProgPage(1)
+                    }}
+                    className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/30 hover:border-blue-400 text-left transition-all cursor-pointer group"
                   >
-                    <PlusCircle size={22} className="text-[#a3e635] mb-2 group-hover:scale-110 transition-transform" />
-                    <div className="font-bold text-white text-sm">Create Next ({nextId})</div>
-                    <p className="text-gray-400 mt-0.5">1-click instant unique card creation</p>
+                    <Radio size={22} className="text-blue-400 mb-2 group-hover:scale-110 transition-transform" />
+                    <div className="font-bold text-white text-sm">NFC Programming Workbench</div>
+                    <p className="text-gray-400 mt-0.5">
+                      {metrics.notProgrammed} tags awaiting NTAG213 write
+                    </p>
                   </button>
 
                   <button
@@ -734,26 +866,11 @@ export default function AdminDashboard() {
                   </button>
                 </div>
               </div>
-
-              {/* Architecture Info Box */}
-              <div className="p-6 rounded-3xl bg-[#0e1017] border border-white/10 flex flex-col md:flex-row gap-6 items-start">
-                <div className="w-12 h-12 rounded-2xl bg-[#a3e635]/10 border border-[#a3e635]/30 flex items-center justify-center shrink-0 text-[#a3e635]">
-                  <Sparkles size={24} />
-                </div>
-                <div>
-                  <h4 className="text-base font-bold text-white">
-                    Fully Scalable Architecture (No Card Limits)
-                  </h4>
-                  <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                    You can manufacture and program any number of NFC cards whenever your business expands. Each physical card is assigned a permanent, unchanging URL (e.g. <span className="text-[#a3e635] font-mono">/c/001</span>, <span className="text-[#a3e635] font-mono">/c/051</span>, <span className="text-[#a3e635] font-mono">/c/500</span>). You can create unlimited client businesses, and one business can have multiple NFC cards assigned to it without duplicate profiles.
-                  </p>
-                </div>
-              </div>
             </div>
           )}
 
           {/* ════════════════════════════════════════════════════════════
-              TAB 2: ALL NFC CARDS (UNLIMITED & PAGINATED)
+              TAB 2: ALL NFC CARDS (TABLE & INVENTORY)
               ════════════════════════════════════════════════════════════ */}
           {activeTab === 'cards' && (
             <div className="space-y-4">
@@ -804,7 +921,7 @@ export default function AdminDashboard() {
                     className="bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold px-3.5 py-2 rounded-xl text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-md disabled:opacity-50"
                   >
                     <PlusCircle size={15} />
-                    <span>+ Create Card</span>
+                    <span>+ Create {nextId}</span>
                   </button>
 
                   <button
@@ -839,24 +956,26 @@ export default function AdminDashboard() {
                   <table className="w-full text-left text-xs">
                     <thead className="bg-[#12141d] border-b border-white/10 text-gray-400 uppercase font-mono text-[10px] tracking-wider">
                       <tr>
-                        <th className="py-3.5 px-4">Card ID</th>
-                        <th className="py-3.5 px-4">Status</th>
+                        <th className="py-3.5 px-4">ID</th>
+                        <th className="py-3.5 px-4">Profile Status</th>
+                        <th className="py-3.5 px-4">NFC Programming</th>
                         <th className="py-3.5 px-4">Chip</th>
                         <th className="py-3.5 px-4">Linked Business</th>
-                        <th className="py-3.5 px-4">Permanent URL (NTAG213)</th>
+                        <th className="py-3.5 px-4">Permanent NFC / QR URL</th>
                         <th className="py-3.5 px-4 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
                       {paginatedCards.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="py-8 text-center text-gray-500">
+                          <td colSpan={7} className="py-8 text-center text-gray-500">
                             No cards matching your search or filter.
                           </td>
                         </tr>
                       ) : (
                         paginatedCards.map((c) => {
                           const isAssigned = Boolean(c.business_id)
+                          const nfcStat = c.nfc_status || 'not_programmed'
                           return (
                             <tr key={c.card_id} className="hover:bg-white/[0.02] transition-colors">
                               {/* Card ID */}
@@ -864,7 +983,7 @@ export default function AdminDashboard() {
                                 {c.card_id}
                               </td>
 
-                              {/* Status Badge */}
+                              {/* Profile Status Badge */}
                               <td className="py-3.5 px-4">
                                 <span
                                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
@@ -886,6 +1005,39 @@ export default function AdminDashboard() {
                                   />
                                   {c.status || (isAssigned ? 'Assigned' : 'Available')}
                                 </span>
+                              </td>
+
+                              {/* NFC Programming Status Badge */}
+                              <td className="py-3.5 px-4">
+                                <button
+                                  onClick={() => {
+                                    setSelectedNfcCardId(c.card_id)
+                                    setActiveTab('nfc-programming')
+                                  }}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider cursor-pointer transition-all hover:scale-105 ${
+                                    nfcStat === 'tested'
+                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                                      : nfcStat === 'programmed'
+                                      ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                                      : 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
+                                  }`}
+                                  title="Click to open NFC Programming Workbench"
+                                >
+                                  {nfcStat === 'tested' ? (
+                                    <CheckCircle2 size={12} className="text-emerald-400" />
+                                  ) : nfcStat === 'programmed' ? (
+                                    <Check size={12} className="text-blue-400" />
+                                  ) : (
+                                    <AlertCircle size={12} className="text-amber-400" />
+                                  )}
+                                  <span>
+                                    {nfcStat === 'tested'
+                                      ? 'Tested'
+                                      : nfcStat === 'programmed'
+                                      ? 'Programmed'
+                                      : 'Not Programmed'}
+                                  </span>
+                                </button>
                               </td>
 
                               {/* Chip */}
@@ -911,16 +1063,16 @@ export default function AdminDashboard() {
                                 )}
                               </td>
 
-                              {/* Permanent URL */}
+                              {/* Permanent NFC / QR URL */}
                               <td className="py-3.5 px-4 font-mono text-[11px]">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-gray-300 truncate max-w-[180px] sm:max-w-[240px]">
+                                  <span className="text-gray-300 truncate max-w-[180px] sm:max-w-[220px]">
                                     {c.permanent_url}
                                   </span>
                                   <button
                                     onClick={() => handleCopyUrl(c.permanent_url, c.card_id)}
                                     className="text-gray-500 hover:text-[#a3e635] transition-colors cursor-pointer shrink-0"
-                                    title="Copy URL"
+                                    title="Copy NFC URL"
                                   >
                                     {copiedUrl === c.card_id ? (
                                       <CheckCircle2 size={13} className="text-[#a3e635]" />
@@ -934,6 +1086,18 @@ export default function AdminDashboard() {
                               {/* Actions */}
                               <td className="py-3.5 px-4 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
+                                  {/* Quick NFC Programmer */}
+                                  <button
+                                    onClick={() => {
+                                      setSelectedNfcCardId(c.card_id)
+                                      setActiveTab('nfc-programming')
+                                    }}
+                                    className="p-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 transition-colors cursor-pointer"
+                                    title="Program NFC Tag"
+                                  >
+                                    <Radio size={14} />
+                                  </button>
+
                                   {/* QR Modal */}
                                   <button
                                     onClick={() => handleShowQrModal(c)}
@@ -947,7 +1111,7 @@ export default function AdminDashboard() {
                                   <button
                                     onClick={() => downloadSingleQRPNG(c.permanent_url, c.card_id)}
                                     className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors cursor-pointer"
-                                    title="Download High-Res PNG QR"
+                                    title="Download PNG QR"
                                   >
                                     <Download size={14} />
                                   </button>
@@ -1083,7 +1247,594 @@ export default function AdminDashboard() {
           )}
 
           {/* ════════════════════════════════════════════════════════════
-              TAB 3: ALL BUSINESSES (UNLIMITED & PAGINATED)
+              TAB 3: DEDICATED NFC PROGRAMMING MANAGEMENT SECTION
+              ════════════════════════════════════════════════════════════ */}
+          {activeTab === 'nfc-programming' && (
+            <div className="space-y-8">
+              {/* Top Summary Banner */}
+              <div className="p-6 sm:p-8 rounded-3xl bg-[#0e1017] border border-white/10 shadow-xl">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-white/10">
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center shrink-0 text-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.15)]">
+                      <Radio size={24} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono uppercase tracking-widest text-blue-400 bg-blue-500/10 px-2.5 py-0.5 rounded border border-blue-500/20 font-bold">
+                          PHYSICAL HARDWARE SUITE
+                        </span>
+                      </div>
+                      <h3 className="text-2xl font-black text-white mt-1">
+                        NFC Programming Management
+                      </h3>
+                      <p className="text-xs text-gray-400 mt-1 max-w-xl leading-relaxed">
+                        Hardware chip programming and verification workflow. Write permanent URLs into physical NTAG213 chips using NFC Tools and confirm testing status.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Quick Export Manifest CSV */}
+                  <div className="flex items-center gap-3 shrink-0">
+                    <button
+                      onClick={() => downloadCSVFile(cards, DEFAULT_BASE_URL)}
+                      className="bg-white/10 hover:bg-white/15 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition-all flex items-center gap-2 cursor-pointer border border-white/10"
+                    >
+                      <FileSpreadsheet size={15} />
+                      <span>Export NTAG213 Programming CSV</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 4 Status Metrics Cards */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+                  <div className="p-4 rounded-2xl bg-[#141620] border border-white/10">
+                    <span className="text-[11px] text-gray-400">Total Cards:</span>
+                    <div className="text-2xl font-black text-white font-mono mt-0.5">
+                      {metrics.totalCards}
+                    </div>
+                    <span className="text-[10px] text-gray-500">All registered tags</span>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+                    <div className="flex items-center justify-between text-[11px] text-amber-300">
+                      <span>Not Programmed:</span>
+                      <AlertCircle size={14} />
+                    </div>
+                    <div className="text-2xl font-black text-amber-400 font-mono mt-0.5">
+                      {metrics.notProgrammed}
+                    </div>
+                    <span className="text-[10px] text-amber-300/60">Awaiting NTAG213 write</span>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20">
+                    <div className="flex items-center justify-between text-[11px] text-blue-300">
+                      <span>Programmed:</span>
+                      <Check size={14} />
+                    </div>
+                    <div className="text-2xl font-black text-blue-400 font-mono mt-0.5">
+                      {metrics.programmed}
+                    </div>
+                    <span className="text-[10px] text-blue-300/60">Written &bull; Ready for test</span>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
+                    <div className="flex items-center justify-between text-[11px] text-emerald-300">
+                      <span>Tested &amp; Verified:</span>
+                      <CheckCircle2 size={14} />
+                    </div>
+                    <div className="text-2xl font-black text-emerald-400 font-mono mt-0.5">
+                      {metrics.tested}
+                    </div>
+                    <span className="text-[10px] text-emerald-300/60">Physical tap verified</span>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div className="mt-6 pt-4 border-t border-white/10">
+                  <div className="flex justify-between items-center text-xs mb-2 text-gray-400">
+                    <span className="font-semibold text-white">Batch Verification Progress:</span>
+                    <span className="font-mono text-emerald-400 font-bold">
+                      {metrics.completionPercent}% ({metrics.tested} of {metrics.totalCards} cards tested)
+                    </span>
+                  </div>
+                  <div className="w-full bg-[#161822] rounded-full h-2.5 overflow-hidden">
+                    <div
+                      className="bg-gradient-to-r from-blue-500 to-emerald-400 h-full transition-all duration-300 rounded-full"
+                      style={{ width: `${metrics.completionPercent}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* ── INTERACTIVE WORKBENCH (CARD DETAIL & NFC TOOLS WRITE GUIDE) ── */}
+              {currentNfcCard && (
+                <div className="bg-[#0e1017] border border-blue-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
+
+                  {/* Header Row */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-white/10 relative z-10">
+                    <div className="flex items-center gap-3">
+                      <div className="w-14 h-14 rounded-2xl bg-[#161822] border border-white/15 flex items-center justify-center font-mono font-black text-2xl text-white shadow-inner">
+                        {currentNfcCard.card_id}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono uppercase tracking-wider text-[#a3e635] font-bold">
+                            Active Workbench Tag
+                          </span>
+                          <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded text-gray-300">
+                            NTAG213 (144B)
+                          </span>
+                        </div>
+                        <h4 className="text-lg font-black text-white mt-0.5">
+                          {currentNfcCard.business_name || 'Unassigned Card'}
+                        </h4>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider ${
+                          currentNfcCard.nfc_status === 'tested'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                            : currentNfcCard.nfc_status === 'programmed'
+                            ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                            : 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
+                        }`}
+                      >
+                        {currentNfcCard.nfc_status === 'tested' ? (
+                          <CheckCircle2 size={14} className="text-emerald-400" />
+                        ) : currentNfcCard.nfc_status === 'programmed' ? (
+                          <Check size={14} className="text-blue-400" />
+                        ) : (
+                          <AlertCircle size={14} className="text-amber-400" />
+                        )}
+                        <span>
+                          {currentNfcCard.nfc_status === 'tested'
+                            ? 'Status: Tested & Verified'
+                            : currentNfcCard.nfc_status === 'programmed'
+                            ? 'Status: Programmed'
+                            : 'Status: Not Programmed'}
+                        </span>
+                      </span>
+
+                      <button
+                        onClick={handleNextUnprogrammed}
+                        className="bg-white/10 hover:bg-white/15 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-colors flex items-center gap-1.5 cursor-pointer border border-white/10"
+                        title="Jump to next tag that needs programming"
+                      >
+                        <span>Next Tag</span>
+                        <ArrowRight size={13} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 2-Column Workbench Grid */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mt-6 relative z-10">
+                    {/* Left Column: URL Box & Confirmation Actions (6 cols) */}
+                    <div className="lg:col-span-6 space-y-5">
+                      {/* URL Box */}
+                      <div className="p-4 rounded-2xl bg-[#141620] border border-white/10 space-y-2">
+                        <label className="text-xs font-semibold text-gray-300 uppercase tracking-wider block">
+                          Exact Permanent NFC URL (Write to Chip):
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            readOnly
+                            value={currentNfcCard.permanent_url}
+                            className="w-full bg-[#1b1e2c] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none select-all focus:border-[#a3e635]"
+                          />
+                          <button
+                            onClick={() => handleCopyUrl(currentNfcCard.permanent_url, currentNfcCard.card_id)}
+                            className="bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold px-4 py-2.5 rounded-xl text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-md shrink-0"
+                          >
+                            {copiedUrl === currentNfcCard.card_id ? (
+                              <>
+                                <Check size={14} />
+                                <span>Copied!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy size={14} />
+                                <span>Copy URL</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+
+                        {/* Parity Notice */}
+                        <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[11px] flex items-center gap-2">
+                          <CheckCircle2 size={14} className="shrink-0" />
+                          <span>
+                            QR Code and NFC Tag use the identical URL: <strong className="font-mono text-white">/c/{currentNfcCard.card_id}</strong>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Manual Confirmation Actions */}
+                      <div className="p-4 rounded-2xl bg-[#141620] border border-white/10 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">
+                            Admin Physical Confirmation:
+                          </span>
+                          <span className="text-[10px] text-gray-500">
+                            Never auto-marked
+                          </span>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 text-xs">
+                          <button
+                            onClick={() => handleSetNfcStatus(currentNfcCard.card_id, 'programmed')}
+                            className={`flex-1 py-2.5 px-3 rounded-xl font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                              currentNfcCard.nfc_status === 'programmed'
+                                ? 'bg-blue-600 text-white shadow-md'
+                                : 'bg-blue-500/10 text-blue-300 border border-blue-500/30 hover:bg-blue-500/20'
+                            }`}
+                          >
+                            <Check size={14} />
+                            <span>Mark Programmed</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleSetNfcStatus(currentNfcCard.card_id, 'tested')}
+                            className={`flex-1 py-2.5 px-3 rounded-xl font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                              currentNfcCard.nfc_status === 'tested'
+                                ? 'bg-emerald-600 text-white shadow-md'
+                                : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/20'
+                            }`}
+                          >
+                            <CheckCircle2 size={14} />
+                            <span>Mark Tested &amp; Verified</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleSetNfcStatus(currentNfcCard.card_id, 'not_programmed')}
+                            className="py-2.5 px-3 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white border border-white/10 transition-colors cursor-pointer"
+                            title="Reset tag status"
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+                        </div>
+
+                        <p className="text-[10px] text-gray-500 leading-normal">
+                          Per specification rule 10, the system requires admin confirmation after physically writing the tag with your phone and testing the tap.
+                        </p>
+                      </div>
+
+                      {/* Direct Test Link */}
+                      <div className="flex items-center justify-between px-1 text-xs">
+                        <Link
+                          to={`/c/${currentNfcCard.card_id}`}
+                          target="_blank"
+                          className="text-gray-400 hover:text-white flex items-center gap-1.5 transition-colors"
+                        >
+                          <ExternalLink size={13} />
+                          <span>Simulate Public NFC Tap (/c/{currentNfcCard.card_id})</span>
+                        </Link>
+                      </div>
+                    </div>
+
+                    {/* Right Column: Step-by-Step NFC Tools App Instructions (6 cols) */}
+                    <div className="lg:col-span-6 bg-[#12141d] border border-white/10 rounded-2xl p-5 space-y-3.5 text-xs">
+                      <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                        <div className="flex items-center gap-2 font-bold text-white">
+                          <Smartphone size={16} className="text-[#a3e635]" />
+                          <span>Writing Guide: NFC Tools App</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-gray-400">iOS &bull; Android</span>
+                      </div>
+
+                      <div className="space-y-2.5">
+                        <div className="flex items-start gap-2.5">
+                          <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 font-mono text-[11px] font-bold flex items-center justify-center shrink-0">
+                            1
+                          </span>
+                          <p className="text-gray-300">
+                            Launch <strong>NFC Tools</strong> on your smartphone.
+                          </p>
+                        </div>
+
+                        <div className="flex items-start gap-2.5">
+                          <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 font-mono text-[11px] font-bold flex items-center justify-center shrink-0">
+                            2
+                          </span>
+                          <p className="text-gray-300">
+                            Tap <strong>Write</strong> &rarr; <strong>Add a record</strong> &rarr; <strong>Custom URL / URI</strong>.
+                          </p>
+                        </div>
+
+                        <div className="flex items-start gap-2.5">
+                          <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 font-mono text-[11px] font-bold flex items-center justify-center shrink-0">
+                            3
+                          </span>
+                          <p className="text-gray-300">
+                            Paste the permanent URL: <code className="text-[#a3e635] font-mono bg-black/40 px-1 py-0.5 rounded">/c/{currentNfcCard.card_id}</code> and tap <strong>OK</strong>.
+                          </p>
+                        </div>
+
+                        <div className="flex items-start gap-2.5">
+                          <span className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 font-mono text-[11px] font-bold flex items-center justify-center shrink-0">
+                            4
+                          </span>
+                          <p className="text-gray-300">
+                            Tap <strong>Write / 144 Bytes</strong> and hold the top back of your phone directly against card <strong>{currentNfcCard.card_id}</strong>.
+                          </p>
+                        </div>
+
+                        <div className="flex items-start gap-2.5">
+                          <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-mono text-[11px] font-bold flex items-center justify-center shrink-0">
+                            5
+                          </span>
+                          <p className="text-gray-300">
+                            Tap the card with your phone to verify it immediately opens the live landing page, then click <strong>Mark Tested &amp; Verified</strong> above.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── NFC PROGRAMMING QUEUE & TABLE ── */}
+              <div className="space-y-4">
+                {/* Search & Status Filter */}
+                <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between bg-[#0e1017] p-4 rounded-2xl border border-white/10">
+                  <div className="relative w-full sm:w-80">
+                    <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+                    <input
+                      type="text"
+                      value={nfcProgSearch}
+                      onChange={(e) => {
+                        setNfcProgSearch(e.target.value)
+                        setNfcProgPage(1)
+                      }}
+                      placeholder="Filter by ID (001...) or business..."
+                      className="w-full bg-[#161822] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-blue-400 outline-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                    <Filter size={14} className="text-gray-500 shrink-0 ml-1" />
+                    {[
+                      { id: 'all', label: `All (${metrics.totalCards})` },
+                      { id: 'not_programmed', label: `Not Programmed (${metrics.notProgrammed})` },
+                      { id: 'programmed', label: `Programmed (${metrics.programmed})` },
+                      { id: 'tested', label: `Tested (${metrics.tested})` },
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        onClick={() => {
+                          setNfcProgFilter(tab.id)
+                          setNfcProgPage(1)
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                          nfcProgFilter === tab.id
+                            ? 'bg-blue-500 text-white font-extrabold shadow-md'
+                            : 'bg-[#161822] text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Queue Table */}
+                <div className="bg-[#0e1017] border border-white/10 rounded-3xl overflow-hidden shadow-xl">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-[#12141d] border-b border-white/10 text-gray-400 uppercase font-mono text-[10px] tracking-wider">
+                        <tr>
+                          <th className="py-3.5 px-4">ID</th>
+                          <th className="py-3.5 px-4">Permanent NFC URL</th>
+                          <th className="py-3.5 px-4">Chip</th>
+                          <th className="py-3.5 px-4">Linked Business</th>
+                          <th className="py-3.5 px-4">NFC Status</th>
+                          <th className="py-3.5 px-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {paginatedNfcCards.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-8 text-center text-gray-500">
+                              No NFC tags matching your filter.
+                            </td>
+                          </tr>
+                        ) : (
+                          paginatedNfcCards.map((c) => {
+                            const isSelected = currentNfcCard?.card_id === c.card_id
+                            const nfcStat = c.nfc_status || 'not_programmed'
+                            return (
+                              <tr
+                                key={c.card_id}
+                                className={`transition-colors ${
+                                  isSelected ? 'bg-blue-500/10' : 'hover:bg-white/[0.02]'
+                                }`}
+                              >
+                                {/* ID */}
+                                <td className="py-3.5 px-4 font-mono font-black text-white text-sm">
+                                  {c.card_id}
+                                </td>
+
+                                {/* Permanent NFC URL with Copy Button */}
+                                <td className="py-3.5 px-4 font-mono text-[11px]">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-gray-300 truncate max-w-[200px] sm:max-w-[280px]">
+                                      {c.permanent_url}
+                                    </span>
+                                    <button
+                                      onClick={() => handleCopyUrl(c.permanent_url, c.card_id)}
+                                      className="text-gray-500 hover:text-[#a3e635] transition-colors cursor-pointer shrink-0"
+                                      title="Copy exact NFC URL"
+                                    >
+                                      {copiedUrl === c.card_id ? (
+                                        <CheckCircle2 size={13} className="text-[#a3e635]" />
+                                      ) : (
+                                        <Copy size={13} />
+                                      )}
+                                    </button>
+                                  </div>
+                                </td>
+
+                                {/* Hardware Chip */}
+                                <td className="py-3.5 px-4 font-mono text-gray-400 text-[11px]">
+                                  NTAG213
+                                </td>
+
+                                {/* Linked Business */}
+                                <td className="py-3.5 px-4">
+                                  {c.business_id ? (
+                                    <div>
+                                      <span className="font-bold text-white text-xs">
+                                        {c.business_name || 'Business'}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-gray-500 italic text-[11px]">
+                                      Unassigned
+                                    </span>
+                                  )}
+                                </td>
+
+                                {/* Status Badge */}
+                                <td className="py-3.5 px-4">
+                                  <span
+                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                      nfcStat === 'tested'
+                                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                        : nfcStat === 'programmed'
+                                        ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                                        : 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
+                                    }`}
+                                  >
+                                    {nfcStat === 'tested' ? (
+                                      <CheckCircle2 size={12} className="text-emerald-400" />
+                                    ) : nfcStat === 'programmed' ? (
+                                      <Check size={12} className="text-blue-400" />
+                                    ) : (
+                                      <AlertCircle size={12} className="text-amber-400" />
+                                    )}
+                                    <span>
+                                      {nfcStat === 'tested'
+                                        ? 'Tested'
+                                        : nfcStat === 'programmed'
+                                        ? 'Programmed'
+                                        : 'Not Programmed'}
+                                    </span>
+                                  </span>
+                                </td>
+
+                                {/* Actions */}
+                                <td className="py-3.5 px-4 text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      onClick={() => setSelectedNfcCardId(c.card_id)}
+                                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                        isSelected
+                                          ? 'bg-blue-500 text-white'
+                                          : 'bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10'
+                                      }`}
+                                      title="Load into Workbench"
+                                    >
+                                      {isSelected ? 'Active' : 'Select'}
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleSetNfcStatus(c.card_id, 'programmed')}
+                                      className="p-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 transition-colors cursor-pointer"
+                                      title="Mark as Programmed"
+                                    >
+                                      <Check size={13} />
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleSetNfcStatus(c.card_id, 'tested')}
+                                      className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 transition-colors cursor-pointer"
+                                      title="Mark as Tested & Verified"
+                                    >
+                                      <CheckCircle2 size={13} />
+                                    </button>
+
+                                    <Link
+                                      to={`/c/${c.card_id}`}
+                                      target="_blank"
+                                      className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors"
+                                      title="Test Live URL"
+                                    >
+                                      <ExternalLink size={13} />
+                                    </Link>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Pagination */}
+                  <div className="p-4 bg-[#12141d] border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
+                    <span className="text-gray-400">
+                      Showing{' '}
+                      <span className="font-bold text-white font-mono">
+                        {filteredNfcCards.length === 0 ? 0 : (nfcProgPage - 1) * nfcProgPageSize + 1}
+                      </span>{' '}
+                      to{' '}
+                      <span className="font-bold text-white font-mono">
+                        {Math.min(nfcProgPage * nfcProgPageSize, filteredNfcCards.length)}
+                      </span>{' '}
+                      of{' '}
+                      <span className="font-bold text-white font-mono">
+                        {filteredNfcCards.length}
+                      </span>{' '}
+                      cards in queue
+                    </span>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setNfcProgPage(1)}
+                        disabled={nfcProgPage <= 1}
+                        className="p-1.5 rounded-lg border border-white/10 text-gray-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none"
+                      >
+                        <ChevronsLeft size={16} />
+                      </button>
+                      <button
+                        onClick={() => setNfcProgPage((p) => Math.max(1, p - 1))}
+                        disabled={nfcProgPage <= 1}
+                        className="p-1.5 rounded-lg border border-white/10 text-gray-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+
+                      <span className="px-3 py-1 font-mono text-xs text-white font-bold bg-white/5 rounded-lg border border-white/10">
+                        Page {nfcProgPage} of {totalNfcProgPages}
+                      </span>
+
+                      <button
+                        onClick={() => setNfcProgPage((p) => Math.min(totalNfcProgPages, p + 1))}
+                        disabled={nfcProgPage >= totalNfcProgPages}
+                        className="p-1.5 rounded-lg border border-white/10 text-gray-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                      <button
+                        onClick={() => setNfcProgPage(totalNfcProgPages)}
+                        disabled={nfcProgPage >= totalNfcProgPages}
+                        className="p-1.5 rounded-lg border border-white/10 text-gray-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none"
+                      >
+                        <ChevronsRight size={16} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ════════════════════════════════════════════════════════════
+              TAB 4: ALL BUSINESSES
               ════════════════════════════════════════════════════════════ */}
           {activeTab === 'businesses' && (
             <div className="space-y-6">
@@ -1280,7 +2031,7 @@ export default function AdminDashboard() {
           )}
 
           {/* ════════════════════════════════════════════════════════════
-              TAB 4: CREATE NEW BUSINESS
+              TAB 5: CREATE NEW BUSINESS
               ════════════════════════════════════════════════════════════ */}
           {activeTab === 'create-biz' && (
             <div className="max-w-4xl mx-auto">
@@ -1409,7 +2160,7 @@ export default function AdminDashboard() {
                   {/* Step 3: Initial Card Selection */}
                   <div className="pt-4 border-t border-white/10">
                     <label className="font-semibold text-gray-300 uppercase tracking-wider block mb-2">
-                      Step 3: Initial NFC Card Assignment (Optional)
+                      Step 3: Initial Card Assignment (Optional)
                     </label>
                     <select
                       value={createCardId}
@@ -1510,7 +2261,7 @@ export default function AdminDashboard() {
           )}
 
           {/* ════════════════════════════════════════════════════════════
-              TAB 5: LINK EXISTING BUSINESS
+              TAB 6: LINK EXISTING BUSINESS
               ════════════════════════════════════════════════════════════ */}
           {activeTab === 'link-biz' && (
             <div className="max-w-2xl mx-auto">
@@ -1584,7 +2335,7 @@ export default function AdminDashboard() {
           )}
 
           {/* ════════════════════════════════════════════════════════════
-              TAB 6: QR CODE MANAGEMENT & QR HUB
+              TAB 7: QR CODE MANAGEMENT & QR HUB
               ════════════════════════════════════════════════════════════ */}
           {activeTab === 'qr-hub' && (
             <div className="space-y-8">
