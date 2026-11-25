@@ -38,11 +38,11 @@ CREATE TABLE IF NOT EXISTS businesses (
 
 -- ────────────────────────────────────────────────────────────────────
 -- 2. NFC_CARDS TABLE
--- Stores the 50 permanent PVC NFC cards (001 to 050)
+-- Stores permanent NFC cards (001, 002, 003...)
 -- ────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS nfc_cards (
-  card_id                 TEXT PRIMARY KEY, -- '001', '002', ..., '050'
-  card_number             TEXT NOT NULL,    -- 3-digit card number string
+  card_id                 TEXT PRIMARY KEY, -- '001', '002', '003'...
+  card_number             TEXT NOT NULL,    -- 3-digit numeric string
   status                  TEXT NOT NULL DEFAULT 'available', -- 'available' | 'assigned' | 'linked' | 'active'
   business_id             TEXT REFERENCES businesses(id) ON DELETE SET NULL,
   permanent_url           TEXT NOT NULL,    -- https://nfc-sage.vercel.app/c/001

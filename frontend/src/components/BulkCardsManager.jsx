@@ -198,7 +198,7 @@ export default function BulkCardsManager({ onEditCard, onSelectForPreview }) {
                 Bulk QR Card Generator
               </h2>
               <span className="px-3 py-1 rounded-full bg-lime-400/20 text-lime-300 font-mono text-xs font-bold border border-lime-400/30">
-                50 PVC Cards (001 - 050)
+                Cards ({cards.length})
               </span>
             </div>
             <p className="text-sm text-gray-300 max-w-2xl leading-relaxed">
@@ -558,7 +558,7 @@ export default function BulkCardsManager({ onEditCard, onSelectForPreview }) {
             </button>
 
             <span className="px-3 py-1 rounded-full bg-lime-100 text-lime-800 text-[11px] font-mono font-bold tracking-wider uppercase inline-block mb-3">
-              PVC NFC Card #{previewQR.cardId}
+              {previewQR.cardId}
             </span>
 
             <h3 className="text-lg font-bold text-gray-900 mb-1">

@@ -223,7 +223,7 @@ export default function CardSetupWizard() {
             <span className="text-[11px] font-mono uppercase tracking-widest text-[#a3e635] bg-[#a3e635]/10 px-3 py-1 rounded-full border border-[#a3e635]/20">
               Protected Setup
             </span>
-            <h1 className="text-2xl font-black mt-3">NFC Card #{cardId}</h1>
+            <h1 className="text-2xl font-black mt-3 font-mono">{cardId}</h1>
             <p className="text-sm text-gray-400 mt-1.5">
               Enter admin passcode to configure and assign this card.
             </p>
@@ -290,7 +290,7 @@ export default function CardSetupWizard() {
               {completedBusiness.name}
             </h1>
             <p className="text-sm text-gray-400 mt-2">
-              NFC Card <span className="font-mono text-[#a3e635] font-bold">#{cardId}</span> is now active and permanently linked.
+              Card <span className="font-mono text-[#a3e635] font-bold">{cardId}</span> is now active and permanently linked.
             </p>
 
             <div className="mt-6 p-4 rounded-2xl bg-[#161822] border border-white/10 space-y-2.5 text-xs">
@@ -378,8 +378,8 @@ export default function CardSetupWizard() {
                 Setup Wizard
               </span>
             </div>
-            <h1 className="text-sm font-bold text-white">
-              Configuring Card #{cardId}
+            <h1 className="text-sm font-bold text-white font-mono">
+              {cardId}
             </h1>
           </div>
         </div>
@@ -408,8 +408,8 @@ export default function CardSetupWizard() {
             <span className="px-3 py-1 rounded-full bg-[#a3e635]/10 border border-[#a3e635]/30 text-xs font-mono uppercase tracking-wider text-[#a3e635]">
               First Tap / Setup Flow
             </span>
-            <h2 className="text-3xl font-black text-white mt-4 tracking-tight">
-              Assign NFC Card #{cardId}
+            <h2 className="text-3xl font-black text-white mt-4 tracking-tight font-mono">
+              {cardId}
             </h2>
             <p className="text-sm text-gray-400 mt-2 max-w-md mx-auto">
               Choose how you want to configure this card. You can create a fresh business profile or attach this card to an existing business.
@@ -821,7 +821,7 @@ export default function CardSetupWizard() {
                     ) : (
                       <>
                         <CheckCircle2 size={18} />
-                        <span>Save &amp; Activate Card #{cardId}</span>
+                        <span>Save &amp; Activate {cardId}</span>
                       </>
                     )}
                   </button>
@@ -848,10 +848,10 @@ export default function CardSetupWizard() {
             </div>
 
             <h2 className="text-2xl font-black text-white">
-              Link Card #{cardId} to Existing Business
+              Link {cardId} to Existing Business
             </h2>
             <p className="text-xs text-gray-400 mt-1 mb-5">
-              Select an existing client business. Card #{cardId} will immediately resolve to the exact same landing page.
+              Select an existing client business. {cardId} will immediately resolve to the exact same landing page.
             </p>
 
             {/* Search Bar */}
@@ -930,7 +930,7 @@ export default function CardSetupWizard() {
             {/* Link Action */}
             <div className="mt-6 pt-4 border-t border-white/10 flex justify-between items-center">
               <span className="text-xs text-gray-400">
-                Card #{cardId} &rarr;{' '}
+                {cardId} &rarr;{' '}
                 <span className="text-white font-bold">
                   {businesses.find((b) => b.id === selectedBusinessId)?.name || 'None selected'}
                 </span>
@@ -946,7 +946,7 @@ export default function CardSetupWizard() {
                 ) : (
                   <>
                     <Link2 size={16} />
-                    <span>Link Card #{cardId} Now</span>
+                    <span>Link {cardId} Now</span>
                   </>
                 )}
               </button>

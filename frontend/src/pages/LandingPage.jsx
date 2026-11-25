@@ -280,7 +280,7 @@ export default function LandingPage({ defaultPageId = 'omdropz' }) {
               Card Available
             </span>
             <span className="font-mono text-xs font-bold text-white/70 bg-white/5 px-2.5 py-1 rounded-lg border border-white/10">
-              #{pageId}
+              {String(pageId).padStart(3, '0')}
             </span>
           </div>
 
@@ -298,9 +298,9 @@ export default function LandingPage({ defaultPageId = 'omdropz' }) {
           </div>
 
           {/* Card Title & Intro */}
-          <h1 className="text-2xl font-black tracking-tight text-white mt-2 leading-snug z-20 relative">
+          <h1 className="text-3xl font-black tracking-tight text-white mt-2 leading-snug z-20 relative font-mono">
             <span className="bg-gradient-to-r from-white via-white to-[#bef264] bg-clip-text text-transparent">
-              PVC NFC Card #{pageId}
+              {String(pageId).padStart(3, '0')}
             </span>
           </h1>
 

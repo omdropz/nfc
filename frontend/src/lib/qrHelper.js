@@ -17,7 +17,8 @@ export async function generateQRDataURL(url) {
 }
 
 /**
- * Creates a branded printable PNG image with the QR Code and card metadata label.
+ * Creates a printable PNG image with the QR Code and only the numeric ID label (e.g. 001).
+ * Zero prefixes or suffixes: no "NFC", "PVC", "CARD", or "#".
  * Returns a Blob.
  */
 export async function createBrandedQRPNG(url, cardId) {
@@ -50,11 +51,11 @@ export async function createBrandedQRPNG(url, cardId) {
       ctx.lineTo(600, 630)
       ctx.stroke()
 
-      // Card ID Header
+      // Pure numeric ID (e.g. 001) - no prefixes/suffixes
       ctx.fillStyle = '#111827'
-      ctx.font = 'bold 28px Inter, system-ui, sans-serif'
+      ctx.font = 'bold 36px monospace, Inter, system-ui, sans-serif'
       ctx.textAlign = 'center'
-      ctx.fillText(`NFC PVC CARD #${cardId}`, width / 2, 668)
+      ctx.fillText(String(cardId), width / 2, 668)
 
       // Encoded URL Label
       ctx.fillStyle = '#6b7280'
@@ -69,14 +70,14 @@ export async function createBrandedQRPNG(url, cardId) {
 }
 
 /**
- * Triggers single PNG QR code download.
+ * Triggers single PNG QR code download with filename matching only numeric ID (e.g. 001.png).
  */
 export async function downloadSingleQRPNG(url, cardId) {
   const blob = await createBrandedQRPNG(url, cardId)
   const downloadUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = downloadUrl
-  a.download = `NFC-Card-${cardId}-QR.png`
+  a.download = `${cardId}.png`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -84,15 +85,13 @@ export async function downloadSingleQRPNG(url, cardId) {
 }
 
 /**
- * Generates and downloads a ZIP file containing bulk QR Code PNGs + manifest.csv
- * Fully scalable for any number of cards (10, 50, 100, 500, etc.).
+ * Generates and downloads a ZIP file containing bulk QR Code PNGs (001.png, 002.png, ...) + manifest.csv
  */
 export async function downloadAllCardsZip(cards, baseUrl, onProgress) {
   if (!cards || cards.length === 0) return
 
   const zip = new JSZip()
-  const folderName = `NFC-${cards.length}-Cards-QR-Codes`
-  const folder = zip.folder(folderName)
+  const folder = zip.folder('QR-Codes')
 
   const total = cards.length
   for (let i = 0; i < total; i++) {
@@ -106,12 +105,12 @@ export async function downloadAllCardsZip(cards, baseUrl, onProgress) {
         current: i + 1,
         total,
         percent: Math.round(((i + 1) / total) * 90),
-        message: `Generating QR for Card #${id}...`,
+        message: `Generating ${id}.png...`,
       })
     }
 
     const blob = await createBrandedQRPNG(permanentUrl, id)
-    folder.file(`Card-${id}-QR.png`, blob)
+    folder.file(`${id}.png`, blob)
   }
 
   // Generate Manifest CSV and add to zip
@@ -124,7 +123,7 @@ export async function downloadAllCardsZip(cards, baseUrl, onProgress) {
     })
   }
   const csvContent = generateCSVContent(cards, baseUrl)
-  folder.file(`NFC-Cards-${total}-Index.csv`, csvContent)
+  folder.file('manifest.csv', csvContent)
 
   if (onProgress) {
     onProgress({
@@ -140,7 +139,7 @@ export async function downloadAllCardsZip(cards, baseUrl, onProgress) {
   const downloadUrl = URL.createObjectURL(zipBlob)
   const a = document.createElement('a')
   a.href = downloadUrl
-  a.download = `NFC-Cards-${total}-QR-Bundle.zip`
+  a.download = 'QR-Codes.zip'
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -152,16 +151,16 @@ export async function downloadAllCardsZip(cards, baseUrl, onProgress) {
 }
 
 /**
- * Generates CSV content string for NTAG213 NFC chip programming and manufacturing.
+ * Generates CSV content string.
  */
 export function generateCSVContent(cards, baseUrl) {
   const cleanBase = baseUrl.replace(/\/$/, '')
   const headers = [
-    'Card ID',
+    'ID',
     'Status',
     'Hardware Chip',
     'Permanent Web URL',
-    'NFC Tag URL (NTAG213)',
+    'NFC Tag URL',
     'Assigned Business ID',
     'Assigned Business Name',
     'WhatsApp Number',
@@ -209,7 +208,7 @@ export function downloadCSVFile(cards, baseUrl) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `NFC-Cards-${cards.length}-Manifest.csv`
+  a.download = 'manifest.csv'
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)

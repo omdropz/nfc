@@ -242,7 +242,7 @@ export default function AdminDashboard() {
     try {
       const newCard = await createCard()
       await reloadData()
-      showToast(`NFC Card #${newCard.card_id} created successfully!`)
+      showToast(`${newCard.card_id} created successfully!`)
     } catch (err) {
       alert('Error creating card.')
     } finally {
@@ -267,7 +267,7 @@ export default function AdminDashboard() {
       })
       await reloadData()
       setBulkModalOpen(false)
-      showToast(`Successfully created ${created.length} new NFC cards (#${created[0].card_id} to #${created[created.length - 1].card_id})!`)
+      showToast(`Successfully created ${created.length} cards (${created[0].card_id} to ${created[created.length - 1].card_id})!`)
     } catch (err) {
       alert('Error during bulk card creation.')
     } finally {
@@ -278,11 +278,11 @@ export default function AdminDashboard() {
 
   // ── ACTION: Delete Card Record ──
   const handleDeleteCard = async (cardId) => {
-    if (!window.confirm(`Delete Card #${cardId}? Permanent URL will be deactivated.`)) return
+    if (!window.confirm(`Delete ${cardId}? Permanent URL will be deactivated.`)) return
     try {
       await deleteCardRecord(cardId)
       await reloadData()
-      showToast(`Card #${cardId} deleted.`)
+      showToast(`${cardId} deleted.`)
     } catch {
       alert('Error deleting card.')
     }
@@ -352,7 +352,7 @@ export default function AdminDashboard() {
       await reloadData()
       setSelectedLinkCard('')
       setSelectedLinkBiz('')
-      showToast(`Card #${selectedLinkCard} linked successfully!`)
+      showToast(`${selectedLinkCard} linked successfully!`)
       setActiveTab('cards')
     } catch (err) {
       alert('Error linking card.')
@@ -363,11 +363,11 @@ export default function AdminDashboard() {
 
   // ── ACTION: Unlink Card ──
   const handleUnlink = async (cardId) => {
-    if (!window.confirm(`Unlink Card #${cardId}? It will revert to Available state.`)) return
+    if (!window.confirm(`Unlink ${cardId}? It will revert to Available state.`)) return
     try {
       await unlinkCard(cardId)
       await reloadData()
-      showToast(`Card #${cardId} unlinked.`)
+      showToast(`${cardId} unlinked.`)
     } catch {
       alert('Error unlinking card.')
     }
@@ -690,7 +690,7 @@ export default function AdminDashboard() {
                   <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400">
                     Quick Management Actions
                   </h3>
-                  <span className="text-xs font-mono text-[#a3e635]">Next Card ID: #{nextId}</span>
+                  <span className="text-xs font-mono text-[#a3e635]">Next ID: {nextId}</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
@@ -700,7 +700,7 @@ export default function AdminDashboard() {
                     className="p-4 rounded-2xl bg-gradient-to-tr from-[#a3e635]/20 to-[#bef264]/10 border border-[#a3e635]/40 hover:border-[#a3e635] text-left transition-all cursor-pointer group disabled:opacity-50"
                   >
                     <PlusCircle size={22} className="text-[#a3e635] mb-2 group-hover:scale-110 transition-transform" />
-                    <div className="font-bold text-white text-sm">Create Next Card (#{nextId})</div>
+                    <div className="font-bold text-white text-sm">Create Next ({nextId})</div>
                     <p className="text-gray-400 mt-0.5">1-click instant unique card creation</p>
                   </button>
 
@@ -745,7 +745,7 @@ export default function AdminDashboard() {
                     Fully Scalable Architecture (No Card Limits)
                   </h4>
                   <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                    You can manufacture and program any number of PVC NFC cards whenever your business expands. Each physical card is assigned a permanent, unchanging URL (e.g. <span className="text-[#a3e635] font-mono">/c/001</span>, <span className="text-[#a3e635] font-mono">/c/051</span>, <span className="text-[#a3e635] font-mono">/c/500</span>). You can create unlimited client businesses, and one business can have multiple NFC cards assigned to it without duplicate profiles.
+                    You can manufacture and program any number of NFC cards whenever your business expands. Each physical card is assigned a permanent, unchanging URL (e.g. <span className="text-[#a3e635] font-mono">/c/001</span>, <span className="text-[#a3e635] font-mono">/c/051</span>, <span className="text-[#a3e635] font-mono">/c/500</span>). You can create unlimited client businesses, and one business can have multiple NFC cards assigned to it without duplicate profiles.
                   </p>
                 </div>
               </div>
@@ -860,8 +860,8 @@ export default function AdminDashboard() {
                           return (
                             <tr key={c.card_id} className="hover:bg-white/[0.02] transition-colors">
                               {/* Card ID */}
-                              <td className="py-3.5 px-4 font-mono font-black text-white">
-                                #{c.card_id}
+                              <td className="py-3.5 px-4 font-mono font-black text-white text-sm">
+                                {c.card_id}
                               </td>
 
                               {/* Status Badge */}
@@ -1185,7 +1185,7 @@ export default function AdminDashboard() {
                                     target="_blank"
                                     className="font-mono text-[10px] font-bold bg-[#a3e635]/10 border border-[#a3e635]/30 text-[#bef264] px-2 py-0.5 rounded-lg hover:bg-[#a3e635] hover:text-black transition-colors"
                                   >
-                                    #{cid}
+                                    {cid}
                                   </Link>
                                 ))
                               ) : (
@@ -1419,7 +1419,7 @@ export default function AdminDashboard() {
                       <option value="">-- Assign card later --</option>
                       {availableCards.map((c) => (
                         <option key={c.card_id} value={c.card_id}>
-                          Card #{c.card_id} (Available)
+                          {c.card_id} (Available)
                         </option>
                       ))}
                     </select>
@@ -1538,7 +1538,7 @@ export default function AdminDashboard() {
                       <option value="">-- Choose unassigned card --</option>
                       {availableCards.map((c) => (
                         <option key={c.card_id} value={c.card_id}>
-                          Card #{c.card_id} (URL: /c/{c.card_id})
+                          {c.card_id} (URL: /c/{c.card_id})
                         </option>
                       ))}
                     </select>
@@ -1593,10 +1593,10 @@ export default function AdminDashboard() {
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
                   <div>
                     <h3 className="text-xl font-black text-white">
-                      Physical Card Manufacturing &amp; QR Export
+                      Card Manufacturing &amp; QR Export
                     </h3>
                     <p className="text-xs text-gray-400 mt-1">
-                      Download individual high-res PNGs or batch export QR codes and programming CSV for PVC card production.
+                      Download individual high-res PNGs or batch export QR codes and programming CSV for card production.
                     </p>
                   </div>
 
@@ -1634,12 +1634,12 @@ export default function AdminDashboard() {
                   <div className="p-4 rounded-2xl bg-[#141620] border border-white/10">
                     <span className="text-gray-400">NFC Chip Target:</span>
                     <div className="text-2xl font-black text-[#a3e635] font-mono mt-1">NTAG213</div>
-                    <span className="text-[10px] text-gray-500">144 Bytes standard PVC tag</span>
+                    <span className="text-[10px] text-gray-500">144 Bytes standard tag</span>
                   </div>
                   <div className="p-4 rounded-2xl bg-[#141620] border border-white/10">
                     <span className="text-gray-400">QR Resolution:</span>
                     <div className="text-2xl font-black text-indigo-400 font-mono mt-1">640 &times; 740 px</div>
-                    <span className="text-[10px] text-gray-500">High-Res PNG with bottom metadata label</span>
+                    <span className="text-[10px] text-gray-500">High-Res PNG with numeric label</span>
                   </div>
                 </div>
               </div>
@@ -1660,7 +1660,7 @@ export default function AdminDashboard() {
                       QR Hub API Integration &amp; Dynamic QR Sync
                     </h3>
                     <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                      QR Hub allows remote redirection syncing for physical dynamic QR codes. If you have an active QR Hub plan and API key, enter your credentials below. The platform maintains permanent URLs (<span className="font-mono text-[#a3e635]">/c/:cardId</span>) so that physical PVC cards remain 100% functional even if external API connectivity changes.
+                      QR Hub allows remote redirection syncing for physical dynamic QR codes. If you have an active QR Hub plan and API key, enter your credentials below. The platform maintains permanent URLs (<span className="font-mono text-[#a3e635]">/c/:cardId</span>) so that physical cards remain 100% functional even if external API connectivity changes.
                     </p>
                   </div>
                 </div>
@@ -1788,13 +1788,13 @@ export default function AdminDashboard() {
               {/* ID Range Preview */}
               <div className="p-3.5 rounded-2xl bg-[#141620] border border-white/10 space-y-1.5">
                 <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-gray-400">Starting Card ID:</span>
-                  <span className="font-mono text-[#a3e635] font-bold">#{nextId}</span>
+                  <span className="text-gray-400">Starting ID:</span>
+                  <span className="font-mono text-[#a3e635] font-bold">{nextId}</span>
                 </div>
                 <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-gray-400">Ending Card ID:</span>
+                  <span className="text-gray-400">Ending ID:</span>
                   <span className="font-mono text-indigo-400 font-bold">
-                    #{formatCardId(parseInt(nextId, 10) + Math.max(1, parseInt(bulkQuantity, 10) || 1) - 1)}
+                    {formatCardId(parseInt(nextId, 10) + Math.max(1, parseInt(bulkQuantity, 10) || 1) - 1)}
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-[11px] pt-1 border-t border-white/5">
@@ -2066,7 +2066,7 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="w-full max-w-sm bg-[#0e1017] border border-white/10 rounded-3xl p-6 shadow-2xl text-center">
             <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4">
-              <h3 className="text-sm font-mono font-bold text-white">NFC Card #{qrModalCard.card_id}</h3>
+              <h3 className="text-base font-mono font-bold text-white">{qrModalCard.card_id}</h3>
               <button onClick={() => setQrModalCard(null)} className="text-gray-400 hover:text-white">&times;</button>
             </div>
 
@@ -2086,7 +2086,7 @@ export default function AdminDashboard() {
                 className="flex-1 bg-[#a3e635] hover:bg-[#bef264] text-black font-extrabold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Download size={14} />
-                <span>Download PNG</span>
+                <span>Download {qrModalCard.card_id}.png</span>
               </button>
               <button
                 onClick={() => setQrModalCard(null)}
